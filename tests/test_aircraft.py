@@ -1,6 +1,19 @@
+import sys
+import os
+# Set working directory to the root of the project
+os.chdir(os.path.join(os.path.dirname(__file__), '..'))
+
+print(os.getcwd())
+# List all files in the current directory
+print(os.listdir())
+
+
 import pytest
 import numpy as np
 from envs.aircraft import Aircraft, AircraftConfig
+
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 def test_aircraft_initialization():
     """Test basic aircraft initialization and state."""
