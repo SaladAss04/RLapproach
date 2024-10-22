@@ -118,10 +118,14 @@ class Aircraft:
         # Convert speed from knots to nm/second and calculate movement
         speed_nm_sec = (self.speed / 3600.0) * self.timestep
         
-        # Calculate position change using heading
-        heading_rad = np.radians(self.heading)
-        self.x += speed_nm_sec * np.cos(heading_rad)
-        self.y += speed_nm_sec * np.sin(heading_rad)
+        # Convert aviation heading to mathematical angle
+        # In aviation: 0° is north, 90° is east
+        # In math: 0° is east, 90° is north
+        math_angle = np.radians((90 - self.heading) % 360)
+        
+        # Calculate position change using proper angle
+        self.x += speed_nm_sec * np.cos(math_angle)
+        self.y += speed_nm_sec * np.sin(math_angle)
     
     @property
     def position(self) -> Tuple[float, float]:
