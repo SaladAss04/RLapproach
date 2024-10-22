@@ -8,5 +8,6 @@ setup(
         'numpy',
         'gym',
         'pytest',
+        'pygame'  # Modern rendering backend
     ],
 )
