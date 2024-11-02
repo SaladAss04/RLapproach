@@ -1,6 +1,7 @@
 from typing import Optional
 import numpy as np
 import gymnasium as gym
+from gymnasium.envs.registration import register
 
 def equals(dict1, dict2, tolerance):
     assert dict1.keys() == dict2.keys()
@@ -29,7 +30,8 @@ class DummyEnv(gym.Env):
         else:
             self.tolerance = tolerance
         # Define the agent and target location; randomly chosen in `reset` and updated in `step`
-
+        self.rng = np.random.default_rng()
+        
         self._agent_state = {
             "position": np.array([-1, -1], dtype=np.float16),
             "heading": 0,
@@ -81,13 +83,12 @@ class DummyEnv(gym.Env):
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
-        rng = np.random.default_rng()
         
         # Choose the agent's location uniformly at random
         self._agent_state = {
-            "position": np.array(rng.uniform(0, self.size, size=2, dtype=np.float16)),
+            "position": np.array(self.rng.uniform(0, self.size, size=2, dtype=np.float16)),
             "heading": np.random.random_integers(0, 360, size=1, dtype=int),
-            "altitude": rng.uniform(10000, 15000, size=1, dtype=np.float16),
+            "altitude": self.rng.uniform(10000, 15000, size=1, dtype=np.float16),
             "speed": np.array([np.random.random_integers(100, self.max_speed, size=1),
                                0], dtype=np.float16)
         }  
@@ -96,9 +97,9 @@ class DummyEnv(gym.Env):
         self._target_state = self._agent_state
         while np.array_equal(self._target_state["position"], self._agent_state["position"]):
             self._target_state = {
-            "position": np.array(rng.uniform(0, self.size, size=2, dtype=np.float16)),
+            "position": np.array(self.rng.uniform(0, self.size, size=2, dtype=np.float16)),
             "heading": np.random.random_integers(0, 360, size=1, dtype=int),
-            "altitude": rng.uniform(5000, 10000, size=1, dtype=np.float16),
+            "altitude": self.rng.uniform(5000, 10000, size=1, dtype=np.float16),
             "speed": np.array([np.random.random_integers(50, 200, size=1),
                                0], dtype=np.float16)
             }  
@@ -114,7 +115,7 @@ class DummyEnv(gym.Env):
         If norm of accelerations exceed the limit, they will be normalized.
         If speed is reaching maximum, the corresponding acc will be set to 0.
         '''
-        acc = np.array(action['change_horizontal_acceleration'], action['change_vertical_acceleration'], dtype=np.float16)
+        acc = np.array(action['h_acc'], action['v_acc'], dtype=np.float16)
         speed = self._agent_state["speed"]
         degree = self._agent_state["heading"]
         acc = [(lambda x: 0 if speed[x] > self.max_speed else acc[x])(y) for y in [0,1]]
@@ -140,4 +141,7 @@ class DummyEnv(gym.Env):
         info = self._get_info()
 
         return observation, reward, terminated, truncated, info
-        
+    
+    def render(self):
+        pass
+    
