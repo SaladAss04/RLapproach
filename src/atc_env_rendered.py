@@ -219,7 +219,7 @@ class ATCplanning(DummyEnv):
         if self.sprite_original is None:
             try:
                 # Load the sprite image
-                sprite_path = "graphics/sprite.jpg"
+                sprite_path = "src/graphics/sprite.png"
                 sprite = pygame.image.load(sprite_path)
                 # Convert to the format matching the display
                 sprite = sprite.convert_alpha()
@@ -267,7 +267,7 @@ class ATCplanning(DummyEnv):
         # Rotate sprite
         # The -90 adjustment is because aircraft sprites typically point upward (270 degrees)
         # while our heading is based on 0 degrees pointing right
-        rotated_sprite = pygame.transform.rotate(sprite, -heading - 90)
+        rotated_sprite = pygame.transform.rotate(sprite, -heading)
         
         # Get the rect for positioning
         sprite_rect = rotated_sprite.get_rect(center=pos)
