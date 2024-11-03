@@ -31,6 +31,7 @@ class ATCplanning(DummyEnv):
         self.screen_height = 600
         self.padding = 50
         self.screen = None
+        self.render_mode = 'human'
         pygame.font.init()
         self.font = pygame.font.SysFont('Arial', 16)
 
@@ -120,63 +121,209 @@ class ATCplanning(DummyEnv):
         return reward
 
     #temporary render function for basic functionalities
-    def render(self, mode='human'):
+    def render(self):
+        if self.render_mode is None:
+            return
+
         if self.screen is None:
             pygame.init()
             pygame.display.init()
             self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
             pygame.display.set_caption('ATC Planning Environment')
             
+            # Create additional fonts for different text sizes
+            self.title_font = pygame.font.SysFont('Arial', 24, bold=True)
+            self.info_font = pygame.font.SysFont('Arial', 16)
+            self.small_font = pygame.font.SysFont('Arial', 12)
+
+        # Update colors with a more professional scheme
+        self.colors.update({
+            'background': (15, 15, 35),      # Dark blue-gray
+            'grid': (30, 30, 50),            # Lighter grid lines
+            'agent': (0, 255, 0),            # Green for agent
+            'target': (255, 100, 100),       # Soft red for target
+            'text': (200, 200, 200),         # Light gray for text
+            'altitude_high': (120, 180, 255), # Blue for high altitude
+            'altitude_low': (255, 140, 0),    # Orange for low altitude
+            'warning': (255, 60, 60),         # Red for warnings
+            'trajectory': (100, 100, 255, 128) # Semi-transparent blue
+        })
+        
         # Clear screen
         self.screen.fill(self.colors['background'])
+        
+        # Draw grid
+        self._draw_grid()
+        
+        # Draw airspace boundaries and info panel backgrounds
+        self._draw_airspace()
+        self._draw_info_panels()
         
         # Convert world coordinates to screen coordinates
         def world_to_screen(pos):
             x = self.padding + (pos[0] / self.size) * (self.screen_width - 2 * self.padding)
-            y = self.padding + (pos[1] / self.size) * (self.screen_height - 2 * self.padding)
+            # Flip y-axis for traditional coordinate system
+            y = self.screen_height - (self.padding + (pos[1] / self.size) * (self.screen_height - 2 * self.padding))
             return (int(x), int(y))
         
-        # Draw trajectory
+        # Draw trajectory with altitude-based coloring
         if len(self.trajectory) > 1:
-            pygame.draw.lines(self.screen, self.colors['trajectory'], False, self.trajectory, 2)
+            for i in range(len(self.trajectory) - 1):
+                alt_ratio = (self._agent_state['altitude'] - self.min_altitude) / (15000 - self.min_altitude)
+                color = self._interpolate_color(self.colors['altitude_low'], self.colors['altitude_high'], alt_ratio)
+                pygame.draw.line(self.screen, color, self.trajectory[i], self.trajectory[i+1], 2)
         
-        # Draw agent
+        # Draw aircraft (agent)
         agent_pos = world_to_screen(self._agent_state["position"])
         self.trajectory.append(agent_pos)
-        pygame.draw.circle(self.screen, self.colors['agent'], agent_pos, 5)
         
-        # Draw agent heading indicator
-        heading_rad = math.radians(self._agent_state["heading"])
-        heading_length = 20
-        heading_end = (
-            agent_pos[0] + int(heading_length * math.cos(heading_rad)),
-            agent_pos[1] + int(heading_length * math.sin(heading_rad))
-        )
-        pygame.draw.line(self.screen, self.colors['agent'], agent_pos, heading_end, 2)
+        # Draw altitude indicator circle
+        alt_ratio = (self._agent_state['altitude'] - self.min_altitude) / (15000 - self.min_altitude)
+        altitude_color = self._interpolate_color(self.colors['altitude_low'], self.colors['altitude_high'], alt_ratio)
+        
+        # Draw aircraft symbol
+        self._draw_aircraft(agent_pos, self._agent_state["heading"], altitude_color)
         
         # Draw target
         target_pos = world_to_screen(self._target_state["position"])
-        pygame.draw.circle(self.screen, self.colors['target'], target_pos, 5)
+        self._draw_target(target_pos, self._target_state["heading"])
         
-        # Draw state information
+        # Draw information displays
+        self._draw_state_info()
+        self._draw_navigation_info()
+        
+        # Update display
+        pygame.display.flip()
+        
+        if self.render_mode == "rgb_array":
+            return pygame.surfarray.array3d(self.screen).transpose((1, 0, 2))
+
+    def _draw_grid(self):
+        # Draw coordinate grid
+        grid_spacing = 50
+        for x in range(self.padding, self.screen_width - self.padding, grid_spacing):
+            pygame.draw.line(self.screen, self.colors['grid'], (x, self.padding), 
+                           (x, self.screen_height - self.padding))
+        for y in range(self.padding, self.screen_height - self.padding, grid_spacing):
+            pygame.draw.line(self.screen, self.colors['grid'], (self.padding, y), 
+                           (self.screen_width - self.padding, y))
+
+    def _draw_airspace(self):
+        # Draw minimum altitude boundary
+        pygame.draw.rect(self.screen, self.colors['grid'], 
+                        (self.padding, self.padding, 
+                         self.screen_width - 2*self.padding, 
+                         self.screen_height - 2*self.padding), 2)
+        
+        # Add altitude scale on the side
+        scale_width = 30
+        scale_height = self.screen_height - 2*self.padding
+        scale_x = self.screen_width - self.padding + 10
+        
+        for i in range(11):
+            y = self.padding + (scale_height * (10-i) // 10)
+            alt = self.min_altitude + (15000 - self.min_altitude) * i / 10
+            alt_text = self.small_font.render(f"{int(alt)}ft", True, self.colors['text'])
+            self.screen.blit(alt_text, (scale_x, y))
+
+    def _draw_aircraft(self, pos, heading, color):
+        # Draw more detailed aircraft symbol
+        heading_rad = math.radians(heading)
+        size = 15
+        
+        # Aircraft shape points relative to center
+        points = [
+            (0, -size),  # nose
+            (size//2, size//2),  # right wing
+            (0, size//4),  # body
+            (-size//2, size//2),  # left wing
+        ]
+        
+        # Rotate points according to heading
+        rotated_points = []
+        for x, y in points:
+            rx = x * math.cos(heading_rad) - y * math.sin(heading_rad)
+            ry = x * math.sin(heading_rad) + y * math.cos(heading_rad)
+            rotated_points.append((pos[0] + rx, pos[1] + ry))
+        
+        # Draw aircraft
+        pygame.draw.polygon(self.screen, color, rotated_points)
+        
+        # Draw altitude indicator circle
+        pygame.draw.circle(self.screen, color, pos, size+5, 1)
+
+    def _draw_target(self, pos, heading):
+        # Draw target indicator
+        size = 20
+        pygame.draw.circle(self.screen, self.colors['target'], pos, size, 2)
+        heading_rad = math.radians(heading)
+        end_pos = (pos[0] + size * math.cos(heading_rad), 
+                  pos[1] + size * math.sin(heading_rad))
+        pygame.draw.line(self.screen, self.colors['target'], pos, end_pos, 2)
+
+    def _draw_info_panels(self):
+        # Aircraft state panel
+        self._draw_state_info()
+        # Navigation info panel
+        self._draw_navigation_info()
+        # Draw status warnings if needed
+        #self._draw_warnings()
+
+    def _draw_state_info(self):
+        # Create information panel
+        info_surface = pygame.Surface((250, 150))
+        info_surface.fill((30, 30, 50))
+        
+        # Add title
+        title = self.title_font.render("Aircraft State", True, self.colors['text'])
+        info_surface.blit(title, (10, 5))
+        
+        # Add state information
         info_texts = [
             f"Position: ({self._agent_state['position'][0]:.1f}, {self._agent_state['position'][1]:.1f})",
             f"Heading: {self._agent_state['heading']:.1f}°",
             f"Altitude: {self._agent_state['altitude']:.1f} ft",
-            f"Speed: {np.linalg.norm(self._agent_state['speed']):.1f} knots"
+            f"Speed: {np.linalg.norm(self._agent_state['speed']):.1f} knots",
         ]
         
         for i, text in enumerate(info_texts):
-            text_surface = self.font.render(text, True, self.colors['text'])
-            self.screen.blit(text_surface, (10, 10 + i * 20))
+            text_surface = self.info_font.render(text, True, self.colors['text'])
+            info_surface.blit(text_surface, (10, 35 + i * 25))
         
-        if mode == 'human':
-            pygame.display.flip()
-            
-        elif mode == 'rgb_array':
-            screen_data = pygame.surfarray.array3d(self.screen)
-            return screen_data.transpose((1, 0, 2))
+        self.screen.blit(info_surface, (10, 10))
 
+    def _draw_navigation_info(self):
+        # Create navigation info panel
+        nav_surface = pygame.Surface((250, 150))
+        nav_surface.fill((30, 30, 50))
+        
+        # Add title
+        title = self.title_font.render("Navigation", True, self.colors['text'])
+        nav_surface.blit(title, (10, 5))
+        
+        # Calculate additional navigation information
+        distance_to_target = np.linalg.norm(
+            self._agent_state['position'] - self._target_state['position'])
+        altitude_difference = self._agent_state['altitude'] - self._target_state['altitude']
+        heading_difference = (self._target_state['heading'] - self._agent_state['heading']) % 360
+        
+        nav_texts = [
+            f"Distance: {distance_to_target:.1f} nm",
+            f"Alt Diff: {altitude_difference:.1f} ft",
+            f"Hdg Diff: {heading_difference:.1f}°",
+            f"Time: {self.timestep}/{self.max_timesteps}"
+        ]
+        
+        for i, text in enumerate(nav_texts):
+            text_surface = self.info_font.render(text, True, self.colors['text'])
+            nav_surface.blit(text_surface, (10, 35 + i * 25))
+        
+        self.screen.blit(nav_surface, (10, 170))
+
+    @staticmethod
+    def _interpolate_color(color1, color2, ratio):
+        return tuple(int(c1 + (c2 - c1) * ratio) for c1, c2 in zip(color1, color2))
+        
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         observation, info = super().reset(seed=seed)
         self.timestep = 0
