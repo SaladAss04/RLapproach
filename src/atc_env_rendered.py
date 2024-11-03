@@ -265,18 +265,18 @@ class ATCplanning(DummyEnv):
         sprite.blit(colored_sprite, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         
         # Calculate heading in radians (same as the line)
-        heading_rad = math.radians(heading)
+        #heading_rad = math.radians(heading)
         
         # Draw heading indicator line
-        end_pos = (pos[0] + self.sprite_size[0] * math.cos(heading_rad),
-                pos[1] - self.sprite_size[0] * math.sin(heading_rad))
-        pygame.draw.line(self.screen, color, pos, end_pos, 2)
+        #end_pos = (pos[0] + self.sprite_size[0] * math.cos(heading_rad),
+                #pos[1] - self.sprite_size[0] * math.sin(heading_rad))
+        #pygame.draw.line(self.screen, color, pos, end_pos, 2)
         
         # Convert the radian heading to degrees for sprite rotation
         # We use math.degrees() to ensure consistent conversion
         # The negative is because pygame rotation is clockwise
-        rotation_degrees = -math.degrees(heading_rad)
-        rotated_sprite = pygame.transform.rotate(sprite, rotation_degrees)
+        #rotation_degrees = math.degrees(heading_rad) - 90
+        rotated_sprite = pygame.transform.rotate(sprite, heading - 90)
         
         # Get the rect for positioning
         sprite_rect = rotated_sprite.get_rect(center=pos)
@@ -285,7 +285,7 @@ class ATCplanning(DummyEnv):
         self.screen.blit(rotated_sprite, sprite_rect)
         
         # Draw altitude indicator circle
-        pygame.draw.circle(self.screen, color, pos, self.sprite_size[0]//2, 1)
+        #pygame.draw.circle(self.screen, color, pos, self.sprite_size[0]//2, 1)
 
     def _draw_target(self, pos, heading):
         # Draw target indicator
