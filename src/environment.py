@@ -85,10 +85,10 @@ class DummyEnv(gym.Env):
         
         # Choose the agent's location uniformly at random
         self._agent_state = {
-            "position": np.array(rng.uniform(0, self.size, size=2, dtype=np.float16)),
-            "heading": np.random.random_integers(0, 360, size=1, dtype=int),
-            "altitude": rng.uniform(10000, 15000, size=1, dtype=np.float16),
-            "speed": np.array([np.random.random_integers(100, self.max_speed, size=1),
+            "position": np.array(rng.uniform(0, self.size, size=2), dtype=np.float16),
+            "heading": int(np.random.random_integers(0, 360, size=1)),
+            "altitude": float(rng.uniform(10000, 15000, size=1)),
+            "speed": np.array([np.random.random_integers(100, self.max_speed),
                                0], dtype=np.float16)
         }  
         
@@ -96,10 +96,10 @@ class DummyEnv(gym.Env):
         self._target_state = self._agent_state
         while np.array_equal(self._target_state["position"], self._agent_state["position"]):
             self._target_state = {
-            "position": np.array(rng.uniform(0, self.size, size=2, dtype=np.float16)),
-            "heading": np.random.random_integers(0, 360, size=1, dtype=int),
-            "altitude": rng.uniform(5000, 10000, size=1, dtype=np.float16),
-            "speed": np.array([np.random.random_integers(50, 200, size=1),
+            "position": np.array(rng.uniform(0, self.size, size=2), dtype=np.float16),
+            "heading": int(np.random.random_integers(0, 360, size=1)),
+            "altitude": float(rng.uniform(5000, 10000, size=1)),
+            "speed": np.array([np.random.random_integers(50, 200),
                                0], dtype=np.float16)
             }  
 
