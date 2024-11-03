@@ -264,10 +264,19 @@ class ATCplanning(DummyEnv):
         colored_sprite.fill(color)
         sprite.blit(colored_sprite, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         
-        # Rotate sprite
-        # The -90 adjustment is because aircraft sprites typically point upward (270 degrees)
-        # while our heading is based on 0 degrees pointing right
-        rotated_sprite = pygame.transform.rotate(sprite, -heading)
+        # Calculate heading in radians (same as the line)
+        heading_rad = math.radians(heading)
+        
+        # Draw heading indicator line
+        end_pos = (pos[0] + self.sprite_size[0] * math.cos(heading_rad),
+                pos[1] - self.sprite_size[0] * math.sin(heading_rad))
+        pygame.draw.line(self.screen, color, pos, end_pos, 2)
+        
+        # Convert the radian heading to degrees for sprite rotation
+        # We use math.degrees() to ensure consistent conversion
+        # The negative is because pygame rotation is clockwise
+        rotation_degrees = -math.degrees(heading_rad)
+        rotated_sprite = pygame.transform.rotate(sprite, rotation_degrees)
         
         # Get the rect for positioning
         sprite_rect = rotated_sprite.get_rect(center=pos)
@@ -277,12 +286,6 @@ class ATCplanning(DummyEnv):
         
         # Draw altitude indicator circle
         pygame.draw.circle(self.screen, color, pos, self.sprite_size[0]//2, 1)
-        
-        # Draw heading indicator
-        heading_rad = math.radians(heading)
-        end_pos = (pos[0] + self.sprite_size[0] * math.cos(heading_rad),
-                  pos[1] - self.sprite_size[0] * math.sin(heading_rad))
-        pygame.draw.line(self.screen, color, pos, end_pos, 2)
 
     def _draw_target(self, pos, heading):
         # Draw target indicator
