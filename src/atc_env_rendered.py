@@ -7,12 +7,13 @@ import math
 
 from src.environment import DummyEnv
 
-def equals(dict1, dict2, tolerance):
+def equals(dict1, dict2, tolerance): # Checks whether we need to terminate as we're close enough to the target? -Alex
     assert dict1.keys() == dict2.keys()
     for k in dict1.keys():
         if (dict1[k] < dict2[k] - tolerance[k]).any() or (dict1[k] > dict2[k] + tolerance[k]).any():
             return False
     return True
+
 
 class ATCplanning(DummyEnv):
     def __init__(self, size: int = 10000, max_acc: np.float16 = 3, max_speed: np.float16 = 300, tolerance = None):
@@ -45,6 +46,11 @@ class ATCplanning(DummyEnv):
 
         #store trajectory
         self.trajectory = []
+
+        # Load and prepare the aircraft sprite
+        self.sprite_original = None  # Will be loaded when rendering starts
+        self.sprite_size = (30, 40)  # Desired sprite size
+
 
     def step(self, action):
         """
@@ -207,7 +213,25 @@ class ATCplanning(DummyEnv):
         for y in range(self.padding, self.screen_height - self.padding, grid_spacing):
             pygame.draw.line(self.screen, self.colors['grid'], (self.padding, y), 
                            (self.screen_width - self.padding, y))
-
+            
+    def _load_sprite(self):
+        """Load and prepare the sprite image"""
+        if self.sprite_original is None:
+            try:
+                # Load the sprite image
+                sprite_path = "graphics/sprite.jpg"
+                sprite = pygame.image.load(sprite_path)
+                # Convert to the format matching the display
+                sprite = sprite.convert_alpha()
+                # Scale to desired size
+                self.sprite_original = pygame.transform.scale(sprite, self.sprite_size)
+            except pygame.error as e:
+                print(f"Could not load sprite image: {e}")
+                # Create a fallback triangle shape
+                self.sprite_original = pygame.Surface(self.sprite_size, pygame.SRCALPHA)
+                pygame.draw.polygon(self.sprite_original, (255, 255, 255),
+                                 [(15, 0), (30, 40), (0, 40)])
+                
     def _draw_airspace(self):
         # Draw minimum altitude boundary
         pygame.draw.rect(self.screen, self.colors['grid'], 
@@ -227,30 +251,38 @@ class ATCplanning(DummyEnv):
             self.screen.blit(alt_text, (scale_x, y))
 
     def _draw_aircraft(self, pos, heading, color):
-        # Draw more detailed aircraft symbol
-        heading_rad = math.radians(heading)
-        size = 15
+        """Draw aircraft using the sprite image"""
+        # Ensure sprite is loaded
+        if self.sprite_original is None:
+            self._load_sprite()
+
+        # Create a copy of the sprite to color
+        sprite = self.sprite_original.copy()
         
-        # Aircraft shape points relative to center
-        points = [
-            (0, -size),  # nose
-            (size//2, size//2),  # right wing
-            (0, size//4),  # body
-            (-size//2, size//2),  # left wing
-        ]
+        # Apply color tinting to the sprite
+        colored_sprite = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
+        colored_sprite.fill(color)
+        sprite.blit(colored_sprite, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         
-        # Rotate points according to heading
-        rotated_points = []
-        for x, y in points:
-            rx = x * math.cos(heading_rad) - y * math.sin(heading_rad)
-            ry = x * math.sin(heading_rad) + y * math.cos(heading_rad)
-            rotated_points.append((pos[0] + rx, pos[1] + ry))
+        # Rotate sprite
+        # The -90 adjustment is because aircraft sprites typically point upward (270 degrees)
+        # while our heading is based on 0 degrees pointing right
+        rotated_sprite = pygame.transform.rotate(sprite, -heading - 90)
         
-        # Draw aircraft
-        pygame.draw.polygon(self.screen, color, rotated_points)
+        # Get the rect for positioning
+        sprite_rect = rotated_sprite.get_rect(center=pos)
+        
+        # Draw the sprite
+        self.screen.blit(rotated_sprite, sprite_rect)
         
         # Draw altitude indicator circle
-        pygame.draw.circle(self.screen, color, pos, size+5, 1)
+        pygame.draw.circle(self.screen, color, pos, self.sprite_size[0]//2, 1)
+        
+        # Draw heading indicator
+        heading_rad = math.radians(heading)
+        end_pos = (pos[0] + self.sprite_size[0] * math.cos(heading_rad),
+                  pos[1] - self.sprite_size[0] * math.sin(heading_rad))
+        pygame.draw.line(self.screen, color, pos, end_pos, 2)
 
     def _draw_target(self, pos, heading):
         # Draw target indicator
