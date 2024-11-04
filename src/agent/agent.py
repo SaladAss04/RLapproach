@@ -56,42 +56,32 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     nn.init.constant_(layer.bias, bias_const)  # Constant bias
     return layer
 
-class SACModel(nn.Module):
+class PPOModel(nn.Module):
     def __init__(self, hidden_sizes = (256, 256), max_acc = 3):
         super().__init__()
         self.obs_dim = 12
         self.act_dim = 3
         self.max_acc = max_acc
-        self.policy = nn.Sequential(
+        self.actor = nn.Sequential(
             layer_init(nn.Linear(self.obs_dim, hidden_sizes[0])),
             nn.ReLU(),
             layer_init(nn.Linear(hidden_sizes[0], hidden_sizes[1])),
             nn.ReLU(),
-            layer_init(nn.Linear(hidden_sizes[1], self.act_dim)),
+            layer_init(nn.Linear(hidden_sizes[1], self.act_dim), std = 0.01),
             nn.Tanh()
         )
         
         self.policy_std_log = nn.Parameter(torch.zeros(self.act_dim))
         
-        self.q1 = nn.Sequential(
-            nn.Linear(self.obs_dim + self.act_dim, hidden_sizes[0]),
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(self.obs_dim + self.act_dim, hidden_sizes[0])),
             nn.ReLU(),
-            nn.Linear(hidden_sizes[0], hidden_sizes[1]),
+            layer_init(nn.Linear(hidden_sizes[0], hidden_sizes[1])),
             nn.ReLU(),
-            nn.Linear(hidden_sizes[1], 1)
+            layer_init(nn.Linear(hidden_sizes[1], 1), std = 0.1)
         )
-        self.q2 = nn.Sequential(
-            nn.Linear(self.obs_dim + self.act_dim, hidden_sizes[0]),
-            nn.ReLU(),
-            nn.Linear(hidden_sizes[0], hidden_sizes[1]),
-            nn.ReLU(),
-            nn.Linear(hidden_sizes[1], 1)
-        )
-
-        self.q1_static = self.q1.copy()
-        self.q1_static = self.q2.copy()  
         
-    def pi(self, obs):
+    def act(self, obs):
         mean = self.policy(obs)
         std = torch.exp(self.policy_std_log)
         dist = distribution.Normal(mean, std)
@@ -104,8 +94,6 @@ class SACModel(nn.Module):
         log_pi = dist.log_prob(a).sum(axis=-1)
         return action, log_pi
 
-    
-     
     
     
 '''

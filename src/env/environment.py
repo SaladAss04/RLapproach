@@ -127,7 +127,7 @@ class DummyEnv(gym.Env):
         If norm of accelerations exceed the limit, they will be normalized.
         If speed is reaching maximum, the corresponding acc will be set to 0.
         '''
-        acc = np.array([action['h_acc'], action['v_acc']], dtype=float)
+        acc = np.array([action[1], action[2]], dtype=float)
         speed = self._agent_state["speed"]
         degree = self._agent_state["heading"]
         acc = [(lambda x: 0 if speed[x] > self.max_speed else acc[x])(y) for y in [0,1]]
@@ -139,7 +139,7 @@ class DummyEnv(gym.Env):
         _new_state = {
             "speed": np.array([speed[x] + acc[x] for x in [0,1]], dtype=float),
             "altitude": self._agent_state["altitude"] + speed[1],
-            "heading": (degree + action["turn"]) % 360,
+            "heading": (degree + action[0]) % 360,
             "position": np.clip(self._agent_state["position"] + np.array(speed[0] * np.cos(np.radians(degree)),
                                                                  speed[0] * np.sin(np.radians(degree))),
                                 0, self.size-1)
