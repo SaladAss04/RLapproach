@@ -2,7 +2,7 @@ from collections import defaultdict
 import gymnasium as gym
 import numpy as np
 from torch import nn
-from torch import distribution
+from torch import distributions
 import torch
 
 class DummyAgent:
@@ -74,7 +74,7 @@ class PPOModel(nn.Module):
         self.policy_std_log = nn.Parameter(torch.zeros(self.act_dim))
         
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(self.obs_dim + self.act_dim, hidden_sizes[0])),
+            layer_init(nn.Linear(self.obs_dim, hidden_sizes[0])),
             nn.ReLU(),
             layer_init(nn.Linear(hidden_sizes[0], hidden_sizes[1])),
             nn.ReLU(),
@@ -82,17 +82,16 @@ class PPOModel(nn.Module):
         )
         
     def act(self, obs):
-        mean = self.policy(obs)
+        mean = self.actor(obs)
         std = torch.exp(self.policy_std_log)
-        dist = distribution.Normal(mean, std)
+        dist = distributions.Normal(mean, std)
         a = dist.sample()
-        action = torch.Tensor([
-            a[:, 0].item() * 15,
-            a[:, 1].item() * self.max_acc,
-            a[:, 2].item() * self.max_acc
-        ])
+        action = torch.zeros(a.shape)
+        action[:, 0] = a[:, 0] * 15
+        action[:, 1] = a[:, 1] * self.max_acc
+        action[:, 2] = a[:, 2] * self.max_acc
         log_pi = dist.log_prob(a).sum(axis=-1)
-        return action, log_pi
+        return action, log_pi, dist
 
     
     

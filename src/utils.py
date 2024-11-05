@@ -1,22 +1,25 @@
 import torch
 
 def obs_to_Tensor(data):
-    agent_speed = torch.Tensor(data["agent"]["speed"])  
-    agent_heading = torch.Tensor([data["agent"]["heading"]])  
-    agent_altitude = torch.Tensor([data["agent"]["altitude"]])  # 标量，转换为 1 维张量
-    agent_position = torch.Tensor(data["agent"]["position"])  # 二维向量
+    num = data["agent"]["speed"].shape[0]
+    result = torch.zeros((num, 12))
+    for i in range(num):
+        agent_speed = torch.Tensor(data["agent"]["speed"][i])  
+        agent_heading = torch.Tensor([data["agent"]["heading"][i]]).flatten()
+        agent_altitude = torch.Tensor([data["agent"]["altitude"][i]]).flatten()
+        agent_position = torch.Tensor(data["agent"]["position"][i]) 
 
-    target_speed = torch.Tensor(data["target"]["speed"])  # 二维向量
-    target_heading = torch.Tensor([data["target"]["heading"]])  # 标量，转换为 1 维张量
-    target_altitude = torch.Tensor([data["target"]["altitude"]])  # 标量，转换为 1 维张量
-    target_position = torch.Tensor(data["target"]["position"])  # 二维向量
+        target_speed = torch.Tensor(data["target"]["speed"][i])
+        target_heading = torch.Tensor([data["target"]["heading"][i]]).flatten()
+        target_altitude = torch.Tensor([data["target"]["altitude"][i]]).flatten()
+        target_position = torch.Tensor(data["target"]["position"][i]) 
 
-    # 将所有张量拼接成一个 12 维张量
-    result = torch.cat([
-        agent_speed, agent_heading, agent_altitude, agent_position,
-        target_speed, target_heading, target_altitude, target_position
-    ])
-    
+        # 将所有张量拼接成一个 12 维张量
+        line = torch.cat([
+            agent_speed, agent_heading, agent_altitude, agent_position,
+            target_speed, target_heading, target_altitude, target_position
+        ])
+        result[i] = line
     return result
 
 def get_deltas(rewards, values, next_values, next_nonterminal, gamma):

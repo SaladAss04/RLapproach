@@ -6,12 +6,12 @@ from gymnasium.envs.registration import register
 def equals(dict1, dict2, tolerance):
     assert dict1.keys() == dict2.keys()
     for k in dict1.keys():
-        if dict1[k] < dict2[k] - tolerance[k] or dict1[k] > dict2[k] + tolerance[k]:
+        if (dict1[k] < dict2[k] - tolerance[k]).any() or (dict1[k] > dict2[k] + tolerance[k]).any():
             return False
     return True
 
 def crash(s, a, min_s = 100.0, min_a = 300.0):
-    return s < min_s or a < min_a
+    return s[0] < min_s or a < min_a
 
 class DummyEnv(gym.Env):
     '''
@@ -28,7 +28,7 @@ class DummyEnv(gym.Env):
             self.tolerance = {
                 "position": 100.0,
                 "heading":10,
-                "altutide": 50.0,
+                "altitude": 50.0,
                 "speed":20.0
             }
         else:
@@ -134,14 +134,14 @@ class DummyEnv(gym.Env):
         
         norm_v = np.linalg.norm(acc, ord=2)
         if norm_v > self.max_acc:
-            acc = acc * (self.max_acc / norm_v)
+            acc = [acc[x] * (self.max_acc / norm_v) for x in [0, 1]]
         
         _new_state = {
             "speed": np.array([speed[x] + acc[x] for x in [0,1]], dtype=float),
             "altitude": self._agent_state["altitude"] + speed[1],
             "heading": (degree + action[0]) % 360,
-            "position": np.clip(self._agent_state["position"] + np.array(speed[0] * np.cos(np.radians(degree)),
-                                                                 speed[0] * np.sin(np.radians(degree))),
+            "position": np.clip(self._agent_state["position"].reshape((-1,)) + np.array([speed[0] * np.cos(np.radians(degree)),
+                                                                 speed[0] * np.sin(np.radians(degree))]).reshape((-1,)),
                                 0, self.size-1)
         }
         self._agent_state = _new_state

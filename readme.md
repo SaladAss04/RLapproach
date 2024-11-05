@@ -1,6 +1,6 @@
 ### Environment Setup
 #### If you're running for the first time:
-after pulling the github repo,
+after cloning the github repo,
 `
 cd RLapproach
 python3 -m venv rla
