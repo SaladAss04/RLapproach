@@ -1,4 +1,5 @@
 import torch
+import matplotlib.pyplot as plt
 
 def obs_to_Tensor(data):
     num = data["agent"]["speed"].shape[0]
@@ -58,7 +59,16 @@ def get_value_loss(values, values_old, returns, clip_coeff):
     return value_loss
 
 def get_total_loss(policy_objective, value_loss, entropy_objective, value_loss_coeff, entropy_coeff):
-   
     total_loss = -policy_objective + value_loss_coeff * value_loss - entropy_coeff * entropy_objective  # Combine losses
-
     return total_loss
+
+def plot(x, y, label):
+    plt.figure(figsize=(10, 5))
+    plt.plot(x, y, label=label, alpha=0.5)
+    plt.xlabel("Iteration")
+    plt.ylabel("Value")
+    plt.savefig(label + '.png')
+
+def plot_set(dict):
+    for key in dict.keys():
+        plot(range(len(dict[key])), dict[key], key)

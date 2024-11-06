@@ -3,7 +3,7 @@ import torch
 import numpy as np
 
 NUM_ENVS = 3
-ROLLOUT_STEPS = 128 
+ROLLOUT_STEPS = 1024
 GAMMA = 0.9
 GAE_LAMBDA = 0.95
 BATCH_SIZE = 8
@@ -18,12 +18,14 @@ MINI_BATCH_SIZE = BATCH_SIZE // NUM_MINI_BATCHES
 def rollout(agent, env, device):
     obs, _ = env.reset()
     state = obs_to_Tensor(obs)
-    
     states = torch.zeros((ROLLOUT_STEPS, NUM_ENVS, state.shape[1])).to(device)
     actions = torch.zeros((ROLLOUT_STEPS, NUM_ENVS) + env.action_space.shape).to(device)
     rewards = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
     dones = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
-    done = 0
+    done = torch.zeros((NUM_ENVS,)).to(device)
+    
+    reward_history = []
+    episodic_history = []
     
     logprobs = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
     values = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
@@ -47,9 +49,11 @@ def rollout(agent, env, device):
         rewards[step] = torch.tensor(reward).to(device).view(-1)
         state = torch.Tensor(obs_to_Tensor(next_state)).to(device)
         done = torch.Tensor(done).to(device)
-        #?: reset if done
-        #print(rewards[step]) 
-    return states, actions, logprobs, rewards, dones, values
+        if done.any():
+            reward_history.extend(info['total_reward'][done == 1])
+            episodic_history.extend(info['total_steps'][done == 1])
+        
+    return states, actions, logprobs, rewards, dones, values, reward_history, episodic_history
 
 def returns(agent, states, actions, rewards, dones, values, device):
     with torch.no_grad():
@@ -128,3 +132,6 @@ def train(agent, env, states, actions, logprobs, values, advantages):
             total_actor_loss += policy_loss.item()
             total_critic_loss += value_loss.item()
             total_entropy_objective += entropy_objective.item()
+            
+    return total_actor_loss, total_critic_loss, total_entropy_objective    
+    

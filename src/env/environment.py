@@ -11,7 +11,7 @@ def equals(dict1, dict2, tolerance):
     return True
 
 def crash(s, a, min_s = 100.0, min_a = 300.0):
-    return s[0] < min_s or a < min_a
+    return s[0] < min_s or a[0] < min_a
 
 class DummyEnv(gym.Env):
     '''
@@ -24,6 +24,9 @@ class DummyEnv(gym.Env):
         self.max_acc = max_acc
         self.max_speed = max_speed
         self.max_steps = max_steps
+        self.episodic_reward = 0
+        self.episodic_step = 0
+        
         if tolerance == None:
             self.tolerance = {
                 "position": 100.0,
@@ -82,20 +85,15 @@ class DummyEnv(gym.Env):
     
     def _get_info(self):
         return {
-            "distance": np.linalg.norm(
-                self._agent_state["position"] - self._target_state["position"], ord=1
-            ),
-            "heading_difference": min(np.abs(self._agent_state["heading"] - self._target_state["heading"]), 360 - np.abs(self._agent_state["heading"] - self._target_state["heading"])),
-            "altitude_difference": np.abs(self._agent_state["altitude"] - self._target_state["altitude"]),
-            "speed_difference": np.linalg.norm(
-                self._agent_state["speed"] - self._target_state["speed"], ord=1
-            )
+            "total_reward": self.episodic_reward,
+            "total_steps": self.episodic_step
         }
         
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
-        self.current_step = 0
+        self.episodic_step = 0
+        self.episodic_reward = 0
         # Choose the agent's location uniformly at random
         self._agent_state = {
             "position": np.array(self.rng.uniform(0, self.size, size=2)),
@@ -147,13 +145,17 @@ class DummyEnv(gym.Env):
         self._agent_state = _new_state
         win = equals(self._agent_state, self._target_state, self.tolerance)
         lose = crash(self._agent_state['speed'], self._agent_state['altitude'])
-        terminated = (win or lose)
-        truncated = self.current_step > self.max_steps
-        reward = 1 if win else (-300 if lose else -1)
+        terminated = win or lose
+        truncated = self.episodic_step > self.max_steps
+        reward = 500 if win else (-300 if lose else -1)
         observation = self._get_obs()
         info = self._get_info()
 
-        self.current_step += 1
+        self.episodic_step += 1
+        self.episodic_reward += reward
+        if terminated or truncated:
+            self.episodic_step = 0
+            self.episodic_reward = 0
         return observation, reward, terminated, truncated, info
     
     def render(self):
