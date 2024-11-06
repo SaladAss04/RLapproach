@@ -15,6 +15,10 @@ def create_parallel_envs(num = NUM_ENVS):
     return ret
 
 def main():
+    '''
+    We use multiple parallel envs to train at the same time.
+    Train for multiple iterations, during each iteration one 'rollout-training' is performed.
+    '''
     envs = create_parallel_envs() 
     agent = PPOModel()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

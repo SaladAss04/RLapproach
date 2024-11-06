@@ -16,6 +16,10 @@ BATCH_SIZE = ROLLOUT_STEPS * NUM_ENVS
 MINI_BATCH_SIZE = BATCH_SIZE // NUM_MINI_BATCHES
 
 def rollout(agent, env, device):
+    '''
+    The rollout step lets the current agent interact with the environment, records quantities needed for the 
+    RL, and records its performance for logging/visualizatiob.
+    '''
     obs, _ = env.reset()
     state = obs_to_Tensor(obs)
     states = torch.zeros((ROLLOUT_STEPS, NUM_ENVS, state.shape[1])).to(device)
@@ -56,6 +60,9 @@ def rollout(agent, env, device):
     return states, actions, logprobs, rewards, dones, values, reward_history, episodic_history
 
 def returns(agent, states, actions, rewards, dones, values, device):
+    '''
+    The returns step calculates advantage function out of rollout results, so as to calculate loss/objectives needed for training.
+    '''
     with torch.no_grad():
         advantages = torch.zeros_like(rewards).to(device)
 
@@ -76,6 +83,9 @@ def returns(agent, states, actions, rewards, dones, values, device):
     return advantages
 
 def train(agent, env, states, actions, logprobs, values, advantages):
+    '''
+    Excecuted and updates parameters PER ROLLOUT.
+    '''
     returns = advantages + values
     
     batch_states = states.reshape((-1, states.shape[-1]))
