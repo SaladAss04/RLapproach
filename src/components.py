@@ -3,19 +3,21 @@ import torch
 import numpy as np
 
 NUM_ENVS = 3
-ROLLOUT_STEPS = 1024
-GAMMA = 0.9
+ROLLOUT_STEPS = 256
+GAMMA = 0.90
 GAE_LAMBDA = 0.95
 BATCH_SIZE = 8
 NUM_MINI_BATCHES = 4
 NUM_EPOCHS = 5
-CLIP_COEFF = 0.3
+ACTOR_LR = 3e-4
+CRITIC_LR = 1e-3
+CLIP_COEFF = 0.2
 VALUE_LOSS_COEF = 0.5
 ENTROPY_COEF = 0.01
 BATCH_SIZE = ROLLOUT_STEPS * NUM_ENVS
 MINI_BATCH_SIZE = BATCH_SIZE // NUM_MINI_BATCHES
 
-def rollout(agent, env, device):
+def rollout(agent, env, device, render):
     '''
     The rollout step lets the current agent interact with the environment, records quantities needed for the 
     RL, and records its performance for logging/visualizatiob.
@@ -27,7 +29,9 @@ def rollout(agent, env, device):
     rewards = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
     dones = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
     done = torch.zeros((NUM_ENVS,)).to(device)
-    
+
+    episode_rewards = torch.zeros(NUM_ENVS)
+    episode_lengths = torch.zeros(NUM_ENVS)
     reward_history = []
     episodic_history = []
     
@@ -39,7 +43,7 @@ def rollout(agent, env, device):
         dones[step] = done
 
         with torch.no_grad():
-            # Get action, log probability, and entropy from the agent
+            # get action, log probability, and entropy from the agent
             action, log_probability, _ = agent.act(state)
             value = agent.critic(state)
             values[step] = value.flatten()
@@ -47,15 +51,38 @@ def rollout(agent, env, device):
         actions[step] = action
         logprobs[step] = log_probability
 
-        # Execute action in the environment
+        # execute action in the environment
         next_state, reward, done, _, info = env.step(action.cpu().numpy())
+
+        if render:
+            env.render()
+
         done = [done[i] or _[i] for i in range(len(done))]
         rewards[step] = torch.tensor(reward).to(device).view(-1)
         state = torch.Tensor(obs_to_Tensor(next_state)).to(device)
+
+
+        for env_idx in range(NUM_ENVS):
+            episode_rewards[env_idx] += reward[env_idx]
+            episode_lengths[env_idx] += 1
+
+            if done[env_idx]:
+                reward_history.append(episode_rewards[env_idx])
+                episodic_history.append(episode_lengths[env_idx])
+                episode_rewards[env_idx] = 0
+                episode_lengths[env_idx] = 0
         done = torch.Tensor(done).to(device)
-        if done.any():
-            reward_history.extend(info['total_reward'][done == 1])
-            episodic_history.extend(info['total_steps'][done == 1])
+
+        if reward_history:
+            avg_reward = np.mean(reward_history)
+        else:
+            avg_reward = np.mean([r for r in episode_rewards if r != 0])
+
+
+        #done = torch.Tensor(done).to(device)
+        #if done.any():
+        #    reward_history.extend(info['total_reward'][done == 1])
+        #    episodic_history.extend(info['total_steps'][done == 1])
         
     return states, actions, logprobs, rewards, dones, values, reward_history, episodic_history
 
@@ -64,6 +91,7 @@ def returns(agent, states, actions, rewards, dones, values, device):
     The returns step calculates advantage function out of rollout results, so as to calculate loss/objectives needed for training.
     '''
     with torch.no_grad():
+        rewards = torch.clamp(rewards, -10.0, 10.0)
         advantages = torch.zeros_like(rewards).to(device)
 
         last_gae_lambda = 0
@@ -79,6 +107,9 @@ def returns(agent, states, actions, rewards, dones, values, device):
             delta = get_deltas(rewards[t], values[t], next_value, next_non_terminal, gamma=GAMMA)
 
             advantages[t] = last_gae_lambda = delta + GAMMA * GAE_LAMBDA * next_non_terminal * last_gae_lambda
+            
+            #normalizes advantages over batch
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
     return advantages
 
@@ -123,25 +154,44 @@ def train(agent, env, states, actions, logprobs, values, advantages):
             policy_loss = -policy_objective
 
             # Calculate the value loss
-            value_loss = get_value_loss(new_value.view(-1), batch_values[mini_batch_indices], batch_returns[mini_batch_indices], clip_coeff=CLIP_COEFF)
+            #value_loss = get_value_loss(new_value.view(-1), batch_values[mini_batch_indices], batch_returns[mini_batch_indices], clip_coeff=CLIP_COEFF)
 
             # Calculate the entropy loss
-            entropy_objective = entropy.mean()
+            entropy_objective = -entropy.mean()
 
             # Combine losses to get the total loss
-            total_loss = get_total_loss(policy_objective, value_loss, entropy_objective, value_loss_coeff=VALUE_LOSS_COEF, entropy_coeff=ENTROPY_COEF)
+            #total_loss = get_total_loss(policy_objective, value_loss, entropy_objective, value_loss_coeff=VALUE_LOSS_COEF, entropy_coeff=ENTROPY_COEF)
 
-            optimizer = torch.optim.Adam(agent.parameters(), eps=1e-5)
+            #optimizer = torch.optim.Adam(agent.parameters(), ilr=LEARNING_RATE, eps=1e-5)
             
-            optimizer.zero_grad()
-            total_loss.backward()
+            #optimizer.zero_grad()
+            #total_loss.backward()
             # Clip the gradient to stabilize training
-            torch.nn.utils.clip_grad_norm_(agent.parameters(), 0.5)
-            optimizer.step()
+            #torch.nn.utils.clip_grad_norm_(agent.parameters(), 0.5)
+            #optimizer.step()
+
+            value_pred_clipped = batch_values[mini_batch_indices] + torch.clamp(new_value - batch_values[mini_batch_indices], -CLIP_COEFF, CLIP_COEFF)
+            agent.critic_optimizer.zero_grad()
+            value_losses = (new_value - batch_returns[mini_batch_indices]) ** 2
+            value_losses_clipped = (value_pred_clipped - batch_returns[mini_batch_indices]) ** 2
+            value_loss = 0.5 * torch.max(value_losses, value_losses_clipped).mean()
+
+            total_loss = (policy_loss + VALUE_LOSS_COEF * value_loss + entropy_objective)
+            agent.actor_optimizer.zero_grad()
+            agent.critic_optimizer.zero_grad()
+            total_loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(agent.actor.parameters(), 0.5)
+            torch.nn.utils.clip_grad_norm_(agent.critic.parameters(), 0.5)
+
+            agent.actor_optimizer.step()
+            agent.critic_optimizer.step()
 
             total_actor_loss += policy_loss.item()
             total_critic_loss += value_loss.item()
             total_entropy_objective += entropy_objective.item()
+
+    num_updates = NUM_EPOCHS * (BATCH_SIZE // MINI_BATCH_SIZE)
             
-    return total_actor_loss, total_critic_loss, total_entropy_objective    
+    return (total_actor_loss / num_updates, total_critic_loss / num_updates, total_entropy_objective / num_updates)
     

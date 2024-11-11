@@ -24,6 +24,8 @@ class DummyEnv(gym.Env):
         self.max_acc = max_acc
         self.max_speed = max_speed
         self.max_steps = max_steps
+        self.max_turn_rate = 15.0
+        self.min_altitude = 3000
         self.episodic_reward = 0
         self.episodic_step = 0
         
@@ -57,13 +59,13 @@ class DummyEnv(gym.Env):
             {   
                 "agent":gym.spaces.Dict({
                     "speed": gym.spaces.Box(low=np.array([0.0, -self.max_speed]), high=np.array([self.max_speed, self.max_speed]), dtype=float),
-                    "altitude": gym.spaces.Box(0, 15000, shape=(1,), dtype=float),
+                    "altitude": gym.spaces.Box(self.min_altitude, 15000, shape=(1,), dtype=float),
                     "heading": gym.spaces.Box(0, 360, shape=(1,), dtype=float),
                     "position": gym.spaces.Box(0, size - 1, shape=(2,), dtype=float)
                 }),
                 "target": gym.spaces.Dict({
                     "speed": gym.spaces.Box(low=np.array([0.0, -self.max_speed]), high=np.array([self.max_speed, self.max_speed]), dtype=float),
-                    "altitude": gym.spaces.Box(0, 15000, shape=(1,), dtype=float),
+                    "altitude": gym.spaces.Box(self.min_altitude, 15000, shape=(1,), dtype=float),
                     "heading": gym.spaces.Box(0, 360, shape=(1,), dtype=float),
                     "position": gym.spaces.Box(0, size - 1, shape=(2,), dtype=float)
                 })
@@ -78,7 +80,7 @@ class DummyEnv(gym.Env):
             }
         )
         '''
-        self.action_space = gym.spaces.Box(low=np.array([-15.0, -self.max_acc, -self.max_acc]), high=np.array([15.0, self.max_acc, self.max_acc]), dtype=float)
+        self.action_space = gym.spaces.Box(low=np.array([-self.max_turn_rate, -self.max_acc, -self.max_acc]), high=np.array([self.max_turn_rate, self.max_acc, self.max_acc]), dtype=float)
     
     def _get_obs(self):
         return {"agent": self._agent_state, "target": self._target_state}

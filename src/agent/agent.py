@@ -3,6 +3,8 @@ import gymnasium as gym
 import numpy as np
 from torch import nn
 from torch import distributions
+from src.components import ACTOR_LR
+from src.components import CRITIC_LR
 import torch
 
 class DummyAgent:
@@ -62,6 +64,8 @@ class PPOModel(nn.Module):
         self.obs_dim = 12
         self.act_dim = 3
         self.max_acc = max_acc
+
+        self.state_normalizer = RunningNormalizer(self.obs_dim)
         self.actor = nn.Sequential(
             layer_init(nn.Linear(self.obs_dim, hidden_sizes[0])),
             nn.ReLU(),
@@ -71,30 +75,100 @@ class PPOModel(nn.Module):
             nn.Tanh()
         )
         
-        self.policy_std_log = nn.Parameter(torch.zeros(self.act_dim))
-        
+        initial_std_log = torch.tensor([-1.0, -1.0, -1.0])
+        self.policy_std_log = nn.Parameter(initial_std_log.expand(1, self.act_dim))
+                
         self.critic = nn.Sequential(
             layer_init(nn.Linear(self.obs_dim, hidden_sizes[0])),
             nn.ReLU(),
             layer_init(nn.Linear(hidden_sizes[0], hidden_sizes[1])),
             nn.ReLU(),
-            layer_init(nn.Linear(hidden_sizes[1], 1), std = 0.1)
+            layer_init(nn.Linear(hidden_sizes[1], 1), std = 1.0)
         )
-        
+
+        self.actor_optimizer = torch.optim.Adam(
+            list(self.actor.parameters()) + [self.policy_std_log], 
+            lr=ACTOR_LR, eps=1e-5
+        )
+
+        self.critic_optimizer = torch.optim.Adam(
+            self.critic.parameters(),
+            lr=CRITIC_LR, eps=1e-5
+        )
+
+    def train(self, mode=True):
+        super().train(mode)
+        if mode:
+            self.state_normalizer.train()
+        else:
+            self.state_normalizer.eval()
+
+    def eval(self):
+        super().eval()
+        self.state_normalizer.eval()
+
     def act(self, obs):
-        mean = self.actor(obs)
-        std = torch.exp(self.policy_std_log)
+        obs_norm = self.state_normalizer(obs)
+
+        mean = self.actor(obs_norm)
+        std = torch.exp(torch.clamp(self.policy_std_log.expand_as(mean),-20,2))
         dist = distributions.Normal(mean, std)
-        a = dist.sample()
+        a = dist.rsample()
+
         action = torch.zeros(a.shape)
-        action[:, 0] = a[:, 0] * 15
+        action[:, 0] = a[:, 0] * 10.0
         action[:, 1] = a[:, 1] * self.max_acc
         action[:, 2] = a[:, 2] * self.max_acc
         log_pi = dist.log_prob(a).sum(axis=-1)
         return action, log_pi, dist
 
+class RunningNormalizer:
+    def __init__(self, dim):
+        self.dim = dim
+        self.mean = torch.zeros(dim)
+        self.std = torch.ones(dim)
+        self.count = 0
+        self.training = True  # Added training flag
+        
+    def __call__(self, x):
+        # Convert input to tensor if needed
+        if not isinstance(x, torch.Tensor):
+            x = torch.as_tensor(x).float()
+            
+        # During inference, just normalize with stored statistics
+        if not self.training:
+            return (x - self.mean.to(x.device)) / (self.std.to(x.device) + 1e-8)
+            
+        # Update statistics during training
+        batch_mean = x.mean(0)
+        batch_var = x.var(0, unbiased=False) + 1e-8
+        batch_count = x.shape[0]
+        
+        delta = batch_mean - self.mean.to(x.device)
+        tot_count = self.count + batch_count
+        
+        new_mean = self.mean.to(x.device) + delta * batch_count / tot_count
+        m_a = self.std.to(x.device) ** 2 * self.count
+        m_b = batch_var * batch_count
+        m_2 = m_a + m_b + delta ** 2 * self.count * batch_count / tot_count
+        new_std = torch.sqrt(m_2 / tot_count)
+        
+        self.mean = new_mean.cpu()
+        self.std = new_std.cpu()
+        self.count = tot_count
+        
+        return (x - new_mean) / (new_std + 1e-8)
     
-    
+    def train(self):
+        """Set normalizer to training mode"""
+        self.training = True
+        
+    def eval(self):
+        """Set normalizer to evaluation mode"""
+        self.training = False
+
+
+
 '''
 class SACAgent:
     def __init__(self, env):

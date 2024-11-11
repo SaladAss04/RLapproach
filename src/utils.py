@@ -1,26 +1,77 @@
 import torch
 import matplotlib.pyplot as plt
+import numpy as np
 
 def obs_to_Tensor(data):
-    num = data["agent"]["speed"].shape[0]
-    result = torch.zeros((num, 12))
-    for i in range(num):
-        agent_speed = torch.Tensor(data["agent"]["speed"][i])  
-        agent_heading = torch.Tensor([data["agent"]["heading"][i]]).flatten()
-        agent_altitude = torch.Tensor([data["agent"]["altitude"][i]]).flatten()
-        agent_position = torch.Tensor(data["agent"]["position"][i]) 
+    
+    def process_speed(speed):
+        # Ensure speed is a 2D vector
+        if isinstance(speed, (float, np.float64, np.float32)):
+            return torch.FloatTensor([speed, 0.0])
+        return torch.FloatTensor(speed)
 
-        target_speed = torch.Tensor(data["target"]["speed"][i])
-        target_heading = torch.Tensor([data["target"]["heading"][i]]).flatten()
-        target_altitude = torch.Tensor([data["target"]["altitude"][i]]).flatten()
-        target_position = torch.Tensor(data["target"]["position"][i]) 
+    def process_scalar(value):
+        # Convert scalar values to single-element tensors
+        return torch.FloatTensor([float(value)])
 
-        # 将所有张量拼接成一个 12 维张量
+    def process_position(pos):
+        # Ensure position is a 2D vector
+        return torch.FloatTensor(pos)
+
+    # Check if we're dealing with a single environment observation
+    is_single = not isinstance(data["agent"]["speed"], np.ndarray) or data["agent"]["speed"].ndim == 1
+
+    if is_single:
+        # Process single environment case
+        agent_speed = process_speed(data["agent"]["speed"])
+        agent_heading = process_scalar(data["agent"]["heading"])
+        agent_altitude = process_scalar(data["agent"]["altitude"])
+        agent_position = process_position(data["agent"]["position"])
+        
+        target_speed = process_speed(data["target"]["speed"])
+        target_heading = process_scalar(data["target"]["heading"])
+        target_altitude = process_scalar(data["target"]["altitude"])
+        target_position = process_position(data["target"]["position"])
+
+        return torch.cat([
+            agent_speed.flatten(),  # [2]
+            agent_heading.flatten(),  # [1]
+            agent_altitude.flatten(),  # [1]
+            agent_position.flatten(),  # [2]
+            target_speed.flatten(),  # [2]
+            target_heading.flatten(),  # [1]
+            target_altitude.flatten(),  # [1]
+            target_position.flatten()  # [2]
+        ]).unsqueeze(0)  # Add batch dimension
+    
+    # Handle vectorized environment case
+    num_envs = len(data["agent"]["speed"]) if isinstance(data["agent"]["speed"], np.ndarray) else 1
+    result = torch.zeros((num_envs, 12))
+    
+    for i in range(num_envs):
+        agent_speed = process_speed(data["agent"]["speed"][i])
+        agent_heading = process_scalar(data["agent"]["heading"][i])
+        agent_altitude = process_scalar(data["agent"]["altitude"][i])
+        agent_position = process_position(data["agent"]["position"][i])
+        
+        target_speed = process_speed(data["target"]["speed"][i])
+        target_heading = process_scalar(data["target"]["heading"][i])
+        target_altitude = process_scalar(data["target"]["altitude"][i])
+        target_position = process_position(data["target"]["position"][i])
+
+        # Concatenate all features
         line = torch.cat([
-            agent_speed, agent_heading, agent_altitude, agent_position,
-            target_speed, target_heading, target_altitude, target_position
+            agent_speed.flatten(),  # [2]
+            agent_heading.flatten(),  # [1]
+            agent_altitude.flatten(),  # [1]
+            agent_position.flatten(),  # [2]
+            target_speed.flatten(),  # [2]
+            target_heading.flatten(),  # [1]
+            target_altitude.flatten(),  # [1]
+            target_position.flatten()  # [2]
         ])
         result[i] = line
+    
     return result
 
 def get_deltas(rewards, values, next_values, next_nonterminal, gamma):
@@ -63,6 +114,31 @@ def plot(x, y, label):
     plt.ylabel("Value")
     plt.savefig(label + '.png')
 
+#def plot_set(dict):
+#    for key in dict.keys():
+#        plot(range(len(dict[key])), dict[key], key)
+
 def plot_set(dict):
     for key in dict.keys():
-        plot(range(len(dict[key])), dict[key], key)
+        if key == 'eval_reward':
+            plt.figure(figsize=(10,5))
+            plt.plot(range(0, len(dict['reward']), EVAL_FREQUENCY),
+                    dict['eval_reward'],
+                    label='evaluation_reward',
+                    alpha=0.5)
+            plt.xlabel("Iteration")
+            plt.ylabel("Value")
+            plt.savefig('evaluation_reward.png')
+            plt.close()
+        else:
+            try:
+                # Convert to numpy array and flatten if needed
+                data = np.array(dict[key]).flatten()
+                plt.figure(figsize=(10, 5))
+                plt.plot(range(len(data)), data, label=key, alpha=0.5)
+                plt.xlabel("Iteration")
+                plt.ylabel("Value")
+                plt.savefig(f'{key}.png')
+                plt.close()
+            except Exception as e:
+                print(f"Could not plot {key}: {e}")
