@@ -6,7 +6,7 @@ from src.env.environment import DummyEnv
 import torch
 from tqdm import tqdm
 
-NUM_ITERTAIONS = 3
+NUM_ITERTAIONS = 2000
 def make_env():
     return gym.make('env/Approach-v0')
 

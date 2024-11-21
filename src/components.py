@@ -3,13 +3,13 @@ import torch
 import numpy as np
 
 NUM_ENVS = 3
-ROLLOUT_STEPS = 1024
-GAMMA = 0.9
+ROLLOUT_STEPS = 128
+GAMMA = 0.99
 GAE_LAMBDA = 0.95
 BATCH_SIZE = 8
 NUM_MINI_BATCHES = 4
-NUM_EPOCHS = 5
-CLIP_COEFF = 0.3
+NUM_EPOCHS = 4
+CLIP_COEFF = 0.2
 VALUE_LOSS_COEF = 0.5
 ENTROPY_COEF = 0.01
 BATCH_SIZE = ROLLOUT_STEPS * NUM_ENVS
@@ -119,6 +119,7 @@ def train(agent, env, states, actions, logprobs, values, advantages):
 
             # Calculate the policy loss
             ratio = get_ratio(n_logprobs, batch_logprobs[mini_batch_indices])
+            #kl = get_kl(n_logprobs, batch_logprobs[mini_batch_indices])
             policy_objective = get_policy_objective(mini_batch_advantages, ratio, clip_coeff=CLIP_COEFF)
             policy_loss = -policy_objective
 

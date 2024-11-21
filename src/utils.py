@@ -37,6 +37,14 @@ def get_ratio(logprob, logprob_old):
     logratio = logprob - logprob_old  
     ratio = torch.exp(logratio)  
     return ratio
+
+def get_kl(logprob, logprob_old):
+    # 从 log_probs 计算概率分布
+    probs_old = logprob_old.exp()  # (N, 3)
+    probs_new = logprob.exp()  # (N, 3)
+    kl_div = (probs_old * (logprob_old - logprob)).sum(dim=1) 
+
+    return kl_div
     
 def get_policy_objective(advantages, ratio, clip_coeff):
     policy_objective1 = ratio * advantages  

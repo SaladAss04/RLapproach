@@ -2,6 +2,7 @@ from typing import Optional
 import numpy as np
 import gymnasium as gym
 from gymnasium.envs.registration import register
+import math
 
 def equals(dict1, dict2, tolerance):
     assert dict1.keys() == dict2.keys()
@@ -161,3 +162,166 @@ class DummyEnv(gym.Env):
     def render(self):
         pass
     
+def calculate_heading(agent, target):    
+    x1, y1 = agent
+    x2, y2 = target
+    dx = x2 - x1
+    dy = y2 - y1
+    angle_rad = math.atan2(dy, dx)
+
+    angle_deg = math.degrees(angle_rad)
+    if angle_deg < 0:
+        angle_deg += 360
+
+    return round(angle_deg / 10) * 10
+    
+def calculate_position(agent, heading, v):
+    rad = math.radians(heading)
+    return np.array([agent[0] + v * math.cos(rad), 
+                     agent[1] + v * math.sin(rad)])
+    
+def arrive(agent, target, tolerance):
+    return np.linalg.norm(target - agent) < tolerance
+    
+class DiscreteApproach(gym.Env):
+    def __init__(self, tolerance = None, max_steps = 300):
+        self.size = 100
+        self.speed = 1
+        self.slight_turn = 10
+        self.hard_turn = 30
+        self.num_stat_obs = 3
+        self.num_mot_obs = 2
+        self.radius = 10 #the radius within which we consider an obstacle an intruder
+        
+        self.max_steps = max_steps
+        self.episodic_reward = 0
+        self.episodic_step = 0
+        if tolerance == None:
+            #tolerable in a circle with radius 2
+            self.tolerance = 2
+        else:
+            self.tolerance = tolerance
+        self._agent_state = None
+        self._target_state = None
+        self._obstacles = None
+        '''
+        obs space:
+        A. distance to intruder, angle to intruder, relative heading to intruder;
+            considering multiple intruders.
+            first static ones, then motional ones.
+        
+        B. distance to target, angle to target.
+            target considered as a static obstacle.
+        
+        distances are in float, while angles are in 10-degrees.
+        '''
+        low = np.tile(np.array([0.0, 0, 0]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
+        high = np.tile(np.array([self.size, 35, 35]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
+        self.observation_space = gym.spaces.Box(
+            low = low,
+            high = high,
+            dtype = np.float32
+        )
+        self.observation_space[-1][-1] = -1 #means static
+        '''
+        Action Space:
+        Stay, Slight Left, Slight Right, Hard Left, Hard Right.
+        
+        t.b.d: slight turns are 10 degrees, while hard turns are 30 degrees.
+        '''
+        self.action_space = gym.spaces.Discrete(5)
+        
+    def _get_obs(self):
+        pos, heading = self._agent_state["position"], self._agent_state["heading"]
+        target = self._target_state
+        obs = self.observation_space
+
+        for i, x in enumerate(self._obstacles["static"]):
+            obs[i][0] = np.linalg.norm(pos - x)
+            obs[i][1] = calculate_heading(pos, x)
+            obs[i][2] = -1
+            assert i < obs.shape[0] - 1
+        for i, x in enumerate(self._obstacles["motional"]):
+            raise NotImplementedError("Motional obstacles not implemented, but observing.")
+
+        obs[-1][0] = np.linalg.norm(pos - target)
+        obs[-1][1] = calculate_heading(pos, target)
+        obs[-1][2] = -1
+
+        self.observation_space = obs
+        return self.observation_space
+    
+    def _get_info(self):
+        return {
+            "total_reward": self.episodic_reward,
+            "total_steps": self.episodic_step,
+            "agent_state": self._agent_state,
+            "target_state": self._target_state
+        }
+    
+    def reset(self, seed: Optional[int] = None, motional_obstacles = False):
+        super().reset(seed=seed)
+        self.episodic_step = 0
+        self.episodic_reward = 0
+        self._target_state = np.array(self.rng.uniform(0, self.size, size=2))
+
+        self._agent_state = {
+            "position": np.array(self.rng.uniform(0, self.size, size=2)),
+            "heading": calculate_heading(self._agent_state["position"], self._target_state["position"]),
+        }
+        #initialize obstacles related information
+        if not motional_obstacles:
+            self._obstacles = {
+                "static":[np.array(self.rng.uniform(0, self.size, size=2)) for _ in range(self.num_stat_obs)],
+                "motional": None
+            }
+        else:
+            raise NotImplementedError("Motional obstacles not implemented, but initializing.")
+
+        observation = self._get_obs()
+        info = self._get_info()
+        return observation, info
+
+    def step(self, action, alpha = 1.0, beta = 0.5, gamma = 4.0):
+        '''
+        Action Space:
+        Stay, Slight Left, Slight Right, Hard Left, Hard Right.
+        
+        t.b.d: slight turns are 10 degrees, while hard turns are 30 degrees.
+        '''
+        pos, heading = self._agent_state["position"], self._agent_state["heading"]
+        angle_change = [0, self.slight_turn, -self.slight_turn,
+                        self.hard_turn, -self.hard_turn]
+        _new_state = {
+            "position": calculate_position(pos, heading, self.speed),
+            "heading": heading + angle_change[action]
+        }
+        self._agent_state = _new_state
+        lose = [arrive(_new_state["position"], x, self.tolerance)
+                for x in self._obstacles["static"].extend(self._obstacles["motional"])].any()
+        win = arrive(_new_state["position"],
+                           self._target_state["position"], self.tolerance)
+        terminated = win or lose
+        truncated = self.episodic_step > self.max_steps
+        
+        obs = self._get_obs()
+        reward_target = alpha * (self.size - obs[-2]) + beta * (360 - obs[-1])
+        penalty_obstacle = 0
+        for i, x in enumerate(obs):
+            if i == obs.shape[0] - 1:
+                break
+            dis = x[0] if x[0] < self.radius else 0
+            penalty_obstacle += self.radius * self.radius - dis * dis
+        penalty_obstacle *= gamma 
+        reward_terminate = 500 if win else(-500 if lose else 0)
+
+        reward = reward_target + penalty_obstacle + reward_terminate
+        self.episodic_step += 1
+        self.episodic_reward += reward
+        if terminated or truncated:
+            self.episodic_step = 0
+            self.episodic_reward = 0
+        
+        info = self._get_info()
+        
+        return obs, reward, terminated, truncated, info
