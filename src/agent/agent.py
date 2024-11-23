@@ -4,6 +4,7 @@ import numpy as np
 from torch import nn
 from torch.distributions.categorical import Categorical
 import torch
+import random
 
 class DummyAgent:
     def __init__(self,
@@ -86,3 +87,32 @@ class PPOModel(nn.Module):
         a = dist.sample()
         log_pi = dist.log_prob(a)
         return a, log_pi, dist
+
+class SARSAModel(nn.Module):
+    def __init__(self, num_obstacles, size):
+        super().__init__()
+        self.obs_dim = num_obstacles
+        self.act_dim = 5
+        self.size = size
+        self.q_table = np.zeros((self.size, 36, 36, self.act_dim)) #Only decide based on the closest obstacle
+    
+    def act(self, obs, epsilon = 0.1):
+        i = np.argmin(obs[:, 0])
+        q_values = self.q_table[obs[i][0], (obs[i][1] // 10) % 36, (obs[i][2] // 10) % 36, :]
+        greedy_action = np.argmax(q_values)
+        if random.uniform(0, 1) < epsilon:
+            rest_actions = [x for x in range(self.act_dim) if x != greedy_action]
+            action = rest_actions[random.randint(0, len(rest_actions) - 1)]
+        else:
+            action = greedy_action
+        return action
+
+    def update(self, action, obs_old, obs_new, reward, gamma=0.8, alpha=0.2):
+        i = np.argmin(obs_old[:, 0]) #focus on the original closest obstacle
+        next_action = self.act(obs_new)
+        next_q = self.q_table[obs_old[i][0], (obs_old[i][1] // 10) % 36, (obs_old[i][2] // 10) % 36, next_action]
+        old_q = self.q_table[obs_old[i][0], (obs_old[i][1] // 10) % 36, (obs_old[i][2] // 10) % 36, action]
+        increment = reward + gamma * next_q - old_q
+        self.q_table[obs_old[i][0], (obs_old[i][1] // 10) % 36, (obs_old[i][2] // 10) % 36, action] += alpha * increment
+        return 
+        

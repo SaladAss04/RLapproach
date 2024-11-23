@@ -8,7 +8,7 @@ from torch import nn
 from tqdm import tqdm
 import numpy as np
 
-NUM_ITERATIONS = 200
+NUM_ITERATIONS = 2000
 NUM_ENVS = 1
 ROLLOUT_STEPS = 256
 GAMMA = 0.99
@@ -75,17 +75,18 @@ def main():
         for step in range(0, ROLLOUT_STEPS):
             while not env.need_rl():
                 state, reward, done, _, info = env.step(0)
+                state = torch.Tensor(state).to(device)
                 #pos, tar, heading, target = env.get_position_debug()
                 #print(pos, tar, heading, target)
                 #assert heading == target
-                env.render()
+                #env.render()
                 if done or _:
                     state, _ = env.reset()
+                    state = torch.Tensor(state).to(device)
                 #print("skipping")
             #print("encounter obstacle", env.get_position_debug()) 
-            state = torch.Tensor(initial_state).to(device)
             done = torch.Tensor([done]).to(device) 
-
+            
             global_step += NUM_ENVS
             states[step] = state
             dones[step] = done
@@ -106,7 +107,8 @@ def main():
             state = torch.Tensor(next_state).to(device)
             done = torch.Tensor([done]).to(device)
 
-            env.render()
+            #env.render()
+            '''
             if "final_info" in info:
                 for episode_info in info["final_info"]:
                     if episode_info and "episode" in episode_info:
@@ -114,6 +116,11 @@ def main():
                         reward_history.append(episodic_reward)
                         episode_history.append(global_step)
                         progress_bar.set_postfix({'Total Rewards': episodic_reward})
+            '''
+            if done:
+                obs, info = env.reset()
+                reward_history.append(info['total_reward'])
+                episode_history.append(info['total_steps'])                
 
         # Calculate advantages and returns
         with torch.no_grad():
@@ -208,6 +215,32 @@ def main():
     # Close the environment after training
     plot_set(data_to_plot)
     env.close()
+    return agent
+
+def evaluate(model):
+    env = gym.make('env/Approach-v2')
+    for _ in range(500):
+        obs, _ = env.reset()
+        done = 0
+        while not done:
+            while not env.need_rl():
+                obs, reward, done, _, info = env.step(0)
+                env.render()
+                if done or _:
+                    obs, _ = env.reset()
+            obs = torch.Tensor(obs)
+            action, _, _ = model.act(obs.view(1, -1))
+            obs, reward, done, truncated, info = env.step(action.item())
+            done = done or truncated
+            print(reward)
+            # 渲染环境（可选）
+            env.render()
+    env.close()
 
 if __name__ == "__main__":
-    main()
+    #m = main()
+    #torch.save(m.state_dict(), "model.pth")
+    m = PPOModel(3)
+    m.load_state_dict(torch.load("model.pth"))
+    m.eval()
+    evaluate(m)

@@ -187,13 +187,13 @@ def arrive(agent, target, tolerance):
     
 class DiscreteApproach(DummyEnv):
     def __init__(self, tolerance = None, max_steps = 300):
-        self.size = 100
+        self.size = 40
         self.speed = 1
         self.slight_turn = 10
         self.hard_turn = 30
         self.num_stat_obs = 3
         self.num_mot_obs = 0
-        self.radius = 4 #the radius within which we consider an obstacle an intruder
+        self.radius = 5 #the radius within which we consider an obstacle an intruder
         self.rng = np.random.default_rng()
         self.max_speed = 300
         
@@ -266,12 +266,12 @@ class DiscreteApproach(DummyEnv):
         
         distances are in float, while angles are in 10-degrees.
         '''
-        low = np.tile(np.array([0.0, 0, 0]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
-        high = np.tile(np.array([self.size, 35, 35]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
+        low = np.tile(np.array([0, 0, 0]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
+        high = np.tile(np.array([int(self.size), 35, 35]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
         self.observation_space = gym.spaces.Box(
             low = low,
             high = high,
-            dtype = np.float32
+            dtype = int
         )
         self._agent_state = {
             "position": np.array([-1, -1], dtype=float),
@@ -299,8 +299,8 @@ class DiscreteApproach(DummyEnv):
         obs = np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype)
 
         for i, x in enumerate(self._obstacles["static"]):
-            obs[i][0] = np.linalg.norm(pos - x)
-            obs[i][1] = calculate_heading(pos, x)
+            obs[i][0] = int(np.linalg.norm(pos - x))
+            obs[i][1] = int(calculate_heading(pos, x))
             obs[i][2] = -1
             assert i < obs.shape[0] - 1
 
@@ -308,8 +308,8 @@ class DiscreteApproach(DummyEnv):
         if self._obstacles["motional"] is not None:
             raise NotImplementedError("Motional obstacles not implemented, but observing.")
 
-        obs[-1][0] = np.linalg.norm(pos - target["position"])
-        obs[-1][1] = calculate_heading(pos, target["position"])
+        obs[-1][0] = int(np.linalg.norm(pos - target["position"]))
+        obs[-1][1] = int(calculate_heading(pos, target["position"]))
         obs[-1][2] = -1
 
         #self.observation_space = obs
@@ -359,7 +359,7 @@ class DiscreteApproach(DummyEnv):
         info = self._get_info()
         return observation, info
 
-    def step(self, action, alpha = 0.5, beta = 1.0, gamma = 4.0):
+    def step(self, action, alpha = 0.2, beta = 0.8, gamma = 4.0):
         '''
         Action Space:
         Stay, Slight Left, Slight Right, Hard Left, Hard Right.
@@ -394,20 +394,23 @@ class DiscreteApproach(DummyEnv):
         obs = self._get_obs()
         target_distance = obs[-1][0]
         target_heading = obs[-1][1]
-        reward_target = alpha * (self.size - target_distance) + beta * (360 - target_heading)
+        reward_target = alpha * (self.size - target_distance) + beta * (360 - abs(_new_state["heading"] - target_heading))
         penalty_obstacle = 0
         for i, x in enumerate(obs):
             if i == obs.shape[0] - 1:
                 break
-            dis = x[0] if x[0] < self.radius else 0
-            penalty_obstacle += self.radius * self.radius - dis * dis
+            if x[0] < self.radius:
+                penalty_obstacle += self.radius * self.radius - x[0] * x[0]
         penalty_obstacle *= gamma 
         reward_terminate = 500 if win else(-500 if lose else 0)
-
-        reward = reward_target + penalty_obstacle + reward_terminate + boundary_viol
-        self.episodic_step += 1
-        self.episodic_reward += reward
-        if terminated or truncated:
+        #skip = penalty_obstacle <= 0
+        skip = False
+        
+        reward = reward_target - penalty_obstacle + reward_terminate + boundary_viol
+        if not skip:
+            self.episodic_step += 1
+            self.episodic_reward += reward
+        if (terminated or truncated) and not skip:
             self.episodic_info["total_reward"] = self.episodic_reward
             self.episodic_info["total_steps"] = self.episodic_step
         return obs, reward, terminated, truncated, {}
@@ -426,7 +429,7 @@ class DiscreteApproach(DummyEnv):
 
         # Clear screen
         self.screen.fill(self.colors['background'])
-
+        pygame.time.delay(100)
         # Draw grid
         self._draw_grid()
 

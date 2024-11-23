@@ -77,3 +77,6 @@ def plot(x, y, label):
 def plot_set(dict):
     for key in dict.keys():
         plot(range(len(dict[key])), dict[key], key)
+        
+def plot_list(list, label):
+    plot(range(len(list)), list, label)
