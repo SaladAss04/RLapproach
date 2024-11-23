@@ -317,8 +317,8 @@ class DiscreteApproach(DummyEnv):
         assert obs.shape == (self.num_mot_obs + self.num_stat_obs + 1, 3)
         return obs
     
-    def get_position(self):
-        return self._agent_state["position"], self._agent_state["heading"], calculate_heading(self._agent_state["position"], self._target_state["position"])
+    def get_position_debug(self):
+        return self._agent_state["position"], self._target_state["position"], self._agent_state["heading"], calculate_heading(self._agent_state["position"], self._target_state["position"])
     
     def _get_info(self):
         '''
@@ -352,7 +352,7 @@ class DiscreteApproach(DummyEnv):
             }
         else:
             raise NotImplementedError("Motional obstacles not implemented, but initializing.")
-        _, heading, target = self.get_position()
+        _, __, heading, target = self.get_position_debug()
         assert heading == target
         self.trajectory = []
         observation = self._get_obs()

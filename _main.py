@@ -4,10 +4,11 @@ import gymnasium as gym
 from src.utils import *
 from src.env.environment import DiscreteApproach
 import torch
+from torch import nn
 from tqdm import tqdm
 import numpy as np
 
-NUM_ITERATIONS = 20
+NUM_ITERATIONS = 200
 NUM_ENVS = 1
 ROLLOUT_STEPS = 256
 GAMMA = 0.99
@@ -74,15 +75,16 @@ def main():
         for step in range(0, ROLLOUT_STEPS):
             while not env.need_rl():
                 state, reward, done, _, info = env.step(0)
-                pos, heading, target = env.get_position()
-                print(pos, heading, target)
-                assert heading == target
+                #pos, tar, heading, target = env.get_position_debug()
+                #print(pos, tar, heading, target)
+                #assert heading == target
                 env.render()
                 if done or _:
                     state, _ = env.reset()
                 #print("skipping")
-            print("encounter obstacle", env.get_position()) 
+            #print("encounter obstacle", env.get_position_debug()) 
             state = torch.Tensor(initial_state).to(device)
+            done = torch.Tensor([done]).to(device) 
 
             global_step += NUM_ENVS
             states[step] = state
@@ -98,12 +100,13 @@ def main():
             logprobs[step] = log_probability
 
             # Execute action in the environment
-            next_state, reward, done, _, info = env.step(action.cpu().numpy())
+            next_state, reward, done, _, info = env.step(action.cpu().numpy()[0])
             #normalized_reward = (reward - min_reward) / (max_reward - min_reward)  # Normalize the reward
             rewards[step] = torch.tensor(reward).to(device).view(-1)
             state = torch.Tensor(next_state).to(device)
-            done = torch.Tensor(done).to(device)
+            done = torch.Tensor([done]).to(device)
 
+            env.render()
             if "final_info" in info:
                 for episode_info in info["final_info"]:
                     if episode_info and "episode" in episode_info:
@@ -114,7 +117,7 @@ def main():
 
         # Calculate advantages and returns
         with torch.no_grad():
-            next_value = agent.get_value(state).reshape(1, -1)
+            next_value = agent.critic(state.view(NUM_ENVS, -1)).reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
 
             last_gae_lambda = 0
@@ -158,13 +161,19 @@ def main():
                 mini_batch_advantages = (mini_batch_advantages - mini_batch_advantages.mean()) / (mini_batch_advantages.std() + 1e-8)
 
                 # Compute new probabilities and values for the mini-batch
+                '''
                 new_probabilities = agent.get_probs(batch_states[mini_batch_indices])
                 new_log_probability = agent.get_action_logprob(new_probabilities, batch_actions.long()[mini_batch_indices])
                 entropy = agent.get_entropy(new_probabilities)
-                new_value = agent.get_value(batch_states[mini_batch_indices])
+                new_value = agent.critic(batch_states[mini_batch_indices])
+                '''
+                _state = batch_states[mini_batch_indices]
+                _, n_logprobs, n_probs = agent.act(_state.view(_state.size(0), -1))
+                entropy = n_probs.entropy()
+                new_value = agent.critic(_state.view(_state.size(0), -1))
 
                 # Calculate the policy loss
-                ratio = get_ratio(new_log_probability, batch_logprobs[mini_batch_indices])
+                ratio = get_ratio(n_logprobs, batch_logprobs[mini_batch_indices])
                 policy_objective = get_policy_objective(mini_batch_advantages, ratio, clip_coeff=CLIP_COEF)
                 policy_loss = -policy_objective
 

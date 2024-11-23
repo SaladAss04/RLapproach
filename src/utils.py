@@ -28,8 +28,11 @@ def get_deltas(rewards, values, next_values, next_nonterminal, gamma):
     values = values.squeeze()
     next_values = next_values.squeeze()
     deltas = torch.zeros_like(rewards)
-    deltas[next_nonterminal == 1] = rewards[next_nonterminal == 1] + gamma * next_values[next_nonterminal == 1] - values[next_nonterminal == 1]
-    deltas[next_nonterminal != 1] = rewards[next_nonterminal != 1] - values[next_nonterminal != 1]
+    if len(rewards.size()) < 1:
+        deltas = (rewards + gamma * next_values - values) if next_nonterminal == 1 else (rewards - values)
+    else:
+        deltas[next_nonterminal == 1] = rewards[next_nonterminal == 1] + gamma * next_values[next_nonterminal == 1] - values[next_nonterminal == 1]
+        deltas[next_nonterminal != 1] = rewards[next_nonterminal != 1] - values[next_nonterminal != 1]
 
     return deltas
 
