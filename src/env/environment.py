@@ -402,10 +402,7 @@ class DiscreteApproach(DummyEnv):
                 "position": calculate_position(pos, heading, self.speed),
                 "heading": heading + angle_change[action]
             }
-<<<<<<< Updated upstream
 
-=======
->>>>>>> Stashed changes
         self._agent_state = _new_state
         if self._obstacles["motional"] is not None:
             self._obstacles["static"].extend(self._obstacles["motional"])
