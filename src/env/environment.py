@@ -1,9 +1,10 @@
 from typing import Optional
 import numpy as np
 import gymnasium as gym
-from gymnasium.envs.registration import register
 import math
 import pygame
+import time
+from datetime import datetime
 
 def equals(dict1, dict2, tolerance):
     assert dict1.keys() == dict2.keys()
@@ -176,6 +177,19 @@ def calculate_heading(agent, target):
         angle_deg += 360
 
     return round(angle_deg / 10) * 10
+
+def calculate_angle_difference(agent_heading, agent_position, target_position):
+    # Desired heading toward the target
+    desired_heading = calculate_heading(agent_position, target_position)
+    
+    # Calculate angular difference
+    angle_difference = (desired_heading - agent_heading) % 360
+    
+    # Normalize to [-180, 180]
+    if angle_difference > 180:
+        angle_difference -= 360
+    
+    return angle_difference
     
 def calculate_position(agent, heading, v):
     rad = math.radians(heading)
@@ -186,12 +200,12 @@ def arrive(agent, target, tolerance):
     return np.linalg.norm(target - agent) < tolerance
     
 class DiscreteApproach(DummyEnv):
-    def __init__(self, tolerance = None, max_steps = 300):
+    def __init__(self, tolerance = None, max_steps = 5000):
         self.size = 100
         self.speed = 1
         self.slight_turn = 10
         self.hard_turn = 30
-        self.num_stat_obs = 3
+        self.num_stat_obs = 5
         self.num_mot_obs = 0
         self.radius = 4 #the radius within which we consider an obstacle an intruder
         self.rng = np.random.default_rng()
@@ -369,11 +383,29 @@ class DiscreteApproach(DummyEnv):
         pos, heading = self._agent_state["position"], self._agent_state["heading"]
         angle_change = [0, self.slight_turn, -self.slight_turn,
                         self.hard_turn, -self.hard_turn]
-        #print(action)
-        _new_state = {
-            "position": calculate_position(pos, heading, self.speed),
-            "heading": heading + angle_change[action]
-        }
+
+        obs = self._get_obs()
+        danger = False
+        for i, x in enumerate(obs):
+            if i == obs.shape[0] - 1:
+                break
+            danger = danger or x[0] < self.radius
+
+        if not danger:
+            trajectory = calculate_heading(self._agent_state["position"], self._target_state["position"])
+            _new_state = {
+                "position": calculate_position(pos, trajectory, self.speed),
+                "heading": trajectory
+            }
+        else:
+            _new_state = {
+                "position": calculate_position(pos, heading, self.speed),
+                "heading": heading + angle_change[action]
+            }
+<<<<<<< Updated upstream
+
+=======
+>>>>>>> Stashed changes
         self._agent_state = _new_state
         if self._obstacles["motional"] is not None:
             self._obstacles["static"].extend(self._obstacles["motional"])
@@ -391,10 +423,18 @@ class DiscreteApproach(DummyEnv):
         else:
             boundary_viol = 0
 
-        obs = self._get_obs()
         target_distance = obs[-1][0]
         target_heading = obs[-1][1]
+
+        target_pos = self._target_state["position"]
+        heading_diff = calculate_angle_difference(
+            heading,
+            self._agent_state["position"],
+            target_pos
+        )
+        heading_reward = 50 * (180 - abs(heading_diff)) / 180
         reward_target = alpha * (self.size - target_distance) + beta * (360 - target_heading)
+        #reward_target = self.size - target_distance
         penalty_obstacle = 0
         for i, x in enumerate(obs):
             if i == obs.shape[0] - 1:
@@ -403,8 +443,12 @@ class DiscreteApproach(DummyEnv):
             penalty_obstacle += self.radius * self.radius - dis * dis
         penalty_obstacle *= gamma 
         reward_terminate = 500 if win else(-500 if lose else 0)
+        #turn_penalty = -action**2 * 4
+        #turn_penalty = (action < 3) * (-50) + (action > 2) * (-150)
+        #test_turn = (action > 0) * (-10000)
 
-        reward = reward_target + penalty_obstacle + reward_terminate + boundary_viol
+        reward = reward_target + penalty_obstacle + reward_terminate + boundary_viol + heading_reward
+        #reward = reward_target + reward_terminate + boundary_viol
         self.episodic_step += 1
         self.episodic_reward += reward
         if terminated or truncated:
@@ -451,6 +495,12 @@ class DiscreteApproach(DummyEnv):
 
         pygame.display.flip()
 
+        current_time = datetime.now()
+        filename = current_time.strftime("%Y-%m-%d_%H-%M-%S-%f") + ".pdf"
+        print("Saving file as:", filename)
+        pygame.image.save(self.screen, f"{filename}.jpeg")
+        time.sleep(0.1)
+
     def _world_to_screen(self, pos):
         """Convert world coordinates to screen coordinates"""
         x = self.padding + (pos[0] / self.size) * (self.screen_width - 2 * self.padding)
@@ -496,7 +546,8 @@ class DiscreteApproach(DummyEnv):
                                screen_pos, influence_radius)
 
             # Draw obstacle as a small solid dot
-            pygame.draw.circle(self.screen, self.colors['obstacle'], screen_pos, 8)
+            crash_zone = int(self.tolerance * (self.screen_width - 2*self.padding) / self.size)
+            pygame.draw.circle(self.screen, self.colors['obstacle'], screen_pos, crash_zone)
 
         # Blit the influence surface onto the main screen
         self.screen.blit(influence_surface, (0, 0))
