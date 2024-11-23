@@ -6,3 +6,4 @@ src/__pycache__/atc_env_rendered.cpython-312.pyc
 src/__pycache__/wrapper.cpython-312.pyc
 *.png
 *.pth
+*.pyc
