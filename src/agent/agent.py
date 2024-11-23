@@ -2,7 +2,7 @@ from collections import defaultdict
 import gymnasium as gym
 import numpy as np
 from torch import nn
-from torch import distributions
+from torch.distributions.categorical import Categorical
 import torch
 
 class DummyAgent:
@@ -57,18 +57,17 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     return layer
 
 class PPOModel(nn.Module):
-    def __init__(self, hidden_sizes = (256, 256), max_acc = 3):
+    def __init__(self, num_obstacles, hidden_sizes = (256, 256)):
         super().__init__()
-        self.obs_dim = 12
-        self.act_dim = 3
-        self.max_acc = max_acc
+        self.obs_dim = 3 * (num_obstacles + 1)
+        self.act_dim = 5
         self.actor = nn.Sequential(
             layer_init(nn.Linear(self.obs_dim, hidden_sizes[0])),
             nn.ReLU(),
             layer_init(nn.Linear(hidden_sizes[0], hidden_sizes[1])),
             nn.ReLU(),
             layer_init(nn.Linear(hidden_sizes[1], self.act_dim), std = 0.01),
-            nn.Tanh()
+            nn.Softmax(dim = -1)
         )
         
         self.policy_std_log = nn.Parameter(torch.zeros(self.act_dim))
@@ -82,22 +81,8 @@ class PPOModel(nn.Module):
         )
         
     def act(self, obs):
-        mean = self.actor(obs)
-        std = torch.exp(self.policy_std_log)
-        dist = distributions.Normal(mean, std)
+        logits = self.actor(obs)
+        dist = Categorical(logits)
         a = dist.sample()
-        action = torch.zeros(a.shape)
-        action[:, 0] = a[:, 0] * 15
-        action[:, 1] = a[:, 1] * self.max_acc
-        action[:, 2] = a[:, 2] * self.max_acc
-        log_pi = dist.log_prob(a).sum(axis=-1)
-        return action, log_pi, dist
-
-    
-    
-'''
-class SACAgent:
-    def __init__(self, env):
-        self.env = env
-        self.model = SACModel()
-'''
+        log_pi = dist.log_prob(a)
+        return a, log_pi, dist

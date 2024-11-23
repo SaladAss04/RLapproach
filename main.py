@@ -2,13 +2,13 @@ from src.agent.agent import PPOModel
 import gymnasium as gym
 from src.components import *
 from src.components import NUM_ENVS
-from src.env.environment import DummyEnv
+from src.env.environment import DiscreteApproach
 import torch
 from tqdm import tqdm
 
-NUM_ITERTAIONS = 2000
+NUM_ITERTAIONS = 5000
 def make_env():
-    return gym.make('env/Approach-v0')
+    return gym.make('env/Approach-v2')
 
 def create_parallel_envs(num = NUM_ENVS):
     ret = gym.vector.SyncVectorEnv([make_env for _ in range(num)])
@@ -20,7 +20,7 @@ def main():
     Train for multiple iterations, during each iteration one 'rollout-training' is performed.
     '''
     envs = create_parallel_envs() 
-    agent = PPOModel()
+    agent = PPOModel(3)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     legend = {
         "reward":[],
@@ -31,6 +31,7 @@ def main():
     }
     for _ in tqdm(range(NUM_ITERTAIONS)):
         states, actions, logprobs, rewards, dones, values, r_h, e_h = rollout(agent, envs, device)
+        #assert len([x for x in r_h if x > 0]) > 0
         advantage = returns(agent, states, actions, rewards, dones, values, device)
         a_loss, c_loss, e_obj = train(agent, envs, states, actions, logprobs, values, advantage)
         legend['reward'].extend(r_h)

@@ -3,12 +3,12 @@ import torch
 import numpy as np
 
 NUM_ENVS = 3
-ROLLOUT_STEPS = 128
+ROLLOUT_STEPS = 256
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 BATCH_SIZE = 8
 NUM_MINI_BATCHES = 4
-NUM_EPOCHS = 4
+NUM_EPOCHS = 5
 CLIP_COEFF = 0.2
 VALUE_LOSS_COEF = 0.5
 ENTROPY_COEF = 0.01
@@ -21,8 +21,8 @@ def rollout(agent, env, device):
     RL, and records its performance for logging/visualizatiob.
     '''
     obs, _ = env.reset()
-    state = obs_to_Tensor(obs)
-    states = torch.zeros((ROLLOUT_STEPS, NUM_ENVS, state.shape[1])).to(device)
+    state = torch.Tensor(obs)
+    states = torch.zeros((ROLLOUT_STEPS, NUM_ENVS, state.shape[1], state.shape[2])).to(device)
     actions = torch.zeros((ROLLOUT_STEPS, NUM_ENVS) + env.action_space.shape).to(device)
     rewards = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
     dones = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
@@ -40,8 +40,9 @@ def rollout(agent, env, device):
 
         with torch.no_grad():
             # Get action, log probability, and entropy from the agent
-            action, log_probability, _ = agent.act(state)
-            value = agent.critic(state)
+            action, log_probability, _ = agent.act(state.view(state.size(0), -1))
+            #print(action.shape, action)
+            value = agent.critic(state.view(state.size(0), -1))
             values[step] = value.flatten()
 
         actions[step] = action
@@ -49,11 +50,14 @@ def rollout(agent, env, device):
 
         # Execute action in the environment
         next_state, reward, done, _, info = env.step(action.cpu().numpy())
+        
         done = [done[i] or _[i] for i in range(len(done))]
         rewards[step] = torch.tensor(reward).to(device).view(-1)
-        state = torch.Tensor(obs_to_Tensor(next_state)).to(device)
+        state = torch.Tensor(next_state).to(device)
         done = torch.Tensor(done).to(device)
         if done.any():
+            obs, info = env.reset()
+            #print(info['total_reward'], info['total_reward'][done == 1], done)
             reward_history.extend(info['total_reward'][done == 1])
             episodic_history.extend(info['total_steps'][done == 1])
         
@@ -70,7 +74,7 @@ def returns(agent, states, actions, rewards, dones, values, device):
         for t in reversed(range(ROLLOUT_STEPS)):
             if t == ROLLOUT_STEPS - 1:
                 next_non_terminal = 1.0 - dones[-1]
-                next_value = agent.critic(states[-1])
+                next_value = agent.critic(states[-1].view(states[-1].size(0), -1))
             else:
                 next_non_terminal = 1.0 - dones[t + 1]
                 next_value = values[t + 1]
@@ -88,7 +92,7 @@ def train(agent, env, states, actions, logprobs, values, advantages):
     '''
     returns = advantages + values
     
-    batch_states = states.reshape((-1, states.shape[-1]))
+    batch_states = states.reshape((-1, states.shape[-2], states.shape[-1]))
     batch_logprobs = logprobs.reshape(-1)
     batch_actions = actions.reshape((-1,) + env.action_space.shape)
     batch_advantages = advantages.reshape(-1)
@@ -113,9 +117,11 @@ def train(agent, env, states, actions, logprobs, values, advantages):
             mini_batch_advantages = (mini_batch_advantages - mini_batch_advantages.mean()) / (mini_batch_advantages.std() + 1e-8)
 
             # Compute new probabilities and values for the mini-batch
-            _, n_logprobs, n_probs = agent.act(batch_states[mini_batch_indices])
+            #print(batch_states[mini_batch_indices].shape)
+            _state = batch_states[mini_batch_indices]
+            _, n_logprobs, n_probs = agent.act(_state.view(_state.size(0), -1))
             entropy = n_probs.entropy()
-            new_value = agent.critic(batch_states[mini_batch_indices])
+            new_value = agent.critic(_state.view(_state.size(0), -1))
 
             # Calculate the policy loss
             ratio = get_ratio(n_logprobs, batch_logprobs[mini_batch_indices])

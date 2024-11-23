@@ -151,13 +151,14 @@ class DummyEnv(gym.Env):
         truncated = self.episodic_step > self.max_steps
         reward = 500 if win else (-300 if lose else -1)
         observation = self._get_obs()
-        info = self._get_info()
-
         self.episodic_step += 1
         self.episodic_reward += reward
+        info = self._get_info()
+        '''
         if terminated or truncated:
             self.episodic_step = 0
             self.episodic_reward = 0
+        '''
         return observation, reward, terminated, truncated, info
     
     def render(self):
@@ -191,7 +192,7 @@ class DiscreteApproach(DummyEnv):
         self.slight_turn = 10
         self.hard_turn = 30
         self.num_stat_obs = 3
-        self.num_mot_obs = 2
+        self.num_mot_obs = 0
         self.radius = 10 #the radius within which we consider an obstacle an intruder
         self.rng = np.random.default_rng()
         self.max_speed = 300
@@ -207,7 +208,11 @@ class DiscreteApproach(DummyEnv):
         self._agent_state = None
         #self._target_state = None
         self._obstacles = None
-
+        self.episodic_info = {
+            "total_reward": self.episodic_reward,
+            "total_steps": self.episodic_step
+        }
+        
         #rendering
         self.screen_width = 800
         self.screen_height = 600
@@ -309,15 +314,19 @@ class DiscreteApproach(DummyEnv):
 
         #self.observation_space = obs
         #return self.observation_space
+        assert obs.shape == (self.num_mot_obs + self.num_stat_obs + 1, 3)
         return obs
     
     def _get_info(self):
+        '''
         return {
             "total_reward": self.episodic_reward,
             "total_steps": self.episodic_step,
             "agent_state": self._agent_state,
             "target_state": self._target_state
         }
+        '''
+        return self.episodic_info
     
     def reset(self, seed: Optional[int] = None, motional_obstacles = False):
         super().reset(seed=seed)
@@ -394,12 +403,9 @@ class DiscreteApproach(DummyEnv):
         self.episodic_step += 1
         self.episodic_reward += reward
         if terminated or truncated:
-            self.episodic_step = 0
-            self.episodic_reward = 0
-        
-        info = self._get_info()
-        
-        return obs, reward, terminated, truncated, info
+            self.episodic_info["total_reward"] = self.episodic_reward
+            self.episodic_info["total_steps"] = self.episodic_step
+        return obs, reward, terminated, truncated, {}
 
     def _check_boundaries(self):
         pos = self._agent_state["position"]
