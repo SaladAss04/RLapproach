@@ -7,8 +7,8 @@ import torch
 from tqdm import tqdm
 import numpy as np
 
-NUM_ITERATIONS = 5000
-NUM_ENVS = 3
+NUM_ITERATIONS = 20
+NUM_ENVS = 1
 ROLLOUT_STEPS = 256
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
@@ -30,24 +30,25 @@ def create_parallel_envs(num = NUM_ENVS):
     return ret
 # Initialize global step counter and reset the environment
 def main():
-    envs = create_parallel_envs()
+    #envs = create_parallel_envs()
+    env = gym.make('env/Approach-v2')
     global_step = 0
     agent = PPOModel(3)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    states = torch.zeros((ROLLOUT_STEPS, NUM_ENVS) + envs.single_observation_space.shape).to(device)
-    actions = torch.zeros((ROLLOUT_STEPS, NUM_ENVS) + envs.single_action_space.shape).to(device)
+    states = torch.zeros((ROLLOUT_STEPS, NUM_ENVS) + env.observation_space.shape).to(device)
+    actions = torch.zeros((ROLLOUT_STEPS, NUM_ENVS) + env.action_space.shape).to(device)
     rewards = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
     dones = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
     logprobs = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
     values = torch.zeros((ROLLOUT_STEPS, NUM_ENVS)).to(device)
 
-    initial_state, _ = envs.reset()
+    initial_state, _ = env.reset()
     state = torch.Tensor(initial_state).to(device)
     done = torch.zeros(NUM_ENVS).to(device)
 
     # Set up progress tracking
-    progress_bar = tqdm.tqdm(range(1, NUM_ITERATIONS + 1), postfix={'Total Rewards': 0})
+    progress_bar = tqdm(range(1, NUM_ITERATIONS + 1), postfix={'Total Rewards': 0})
     actor_loss_history = []
     critic_loss_history = []
     entropy_objective_history = []
@@ -71,21 +72,33 @@ def main():
 
         # Perform rollout to gather experience
         for step in range(0, ROLLOUT_STEPS):
+            while not env.need_rl():
+                state, reward, done, _, info = env.step(0)
+                pos, heading, target = env.get_position()
+                print(pos, heading, target)
+                assert heading == target
+                env.render()
+                if done or _:
+                    state, _ = env.reset()
+                #print("skipping")
+            print("encounter obstacle", env.get_position()) 
+            state = torch.Tensor(initial_state).to(device)
+
             global_step += NUM_ENVS
             states[step] = state
             dones[step] = done
 
             with torch.no_grad():
                 # Get action, log probability, and entropy from the agent
-                action, log_probability, _ = agent.get_action_logprob_entropy(state)
-                value = agent.get_value(state)
+                action, log_probability, _ = agent.act(state.view(NUM_ENVS, -1))
+                value = agent.critic(state.view(NUM_ENVS, -1))
                 values[step] = value.flatten()
 
             actions[step] = action
             logprobs[step] = log_probability
 
             # Execute action in the environment
-            next_state, reward, done, _, info = envs.step(action.cpu().numpy())
+            next_state, reward, done, _, info = env.step(action.cpu().numpy())
             #normalized_reward = (reward - min_reward) / (max_reward - min_reward)  # Normalize the reward
             rewards[step] = torch.tensor(reward).to(device).view(-1)
             state = torch.Tensor(next_state).to(device)
@@ -120,9 +133,9 @@ def main():
             returns = advantages + values
 
         # Flatten the batch data for processing
-        batch_states = states.reshape((-1,) + envs.single_observation_space.shape)
+        batch_states = states.reshape((-1,) + env.observation_space.shape)
         batch_logprobs = logprobs.reshape(-1)
-        batch_actions = actions.reshape((-1,) + envs.single_action_space.shape)
+        batch_actions = actions.reshape((-1,) + env.action_space.shape)
         batch_advantages = advantages.reshape(-1)
         batch_returns = returns.reshape(-1)
         batch_values = values.reshape(-1)
@@ -185,4 +198,7 @@ def main():
         data_to_plot['Entropy'].extend(entropy_objective_history)
     # Close the environment after training
     plot_set(data_to_plot)
-    envs.close()
+    env.close()
+
+if __name__ == "__main__":
+    main()

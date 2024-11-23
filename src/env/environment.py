@@ -193,7 +193,7 @@ class DiscreteApproach(DummyEnv):
         self.hard_turn = 30
         self.num_stat_obs = 3
         self.num_mot_obs = 0
-        self.radius = 10 #the radius within which we consider an obstacle an intruder
+        self.radius = 4 #the radius within which we consider an obstacle an intruder
         self.rng = np.random.default_rng()
         self.max_speed = 300
         
@@ -317,6 +317,9 @@ class DiscreteApproach(DummyEnv):
         assert obs.shape == (self.num_mot_obs + self.num_stat_obs + 1, 3)
         return obs
     
+    def get_position(self):
+        return self._agent_state["position"], self._agent_state["heading"], calculate_heading(self._agent_state["position"], self._target_state["position"])
+    
     def _get_info(self):
         '''
         return {
@@ -335,12 +338,12 @@ class DiscreteApproach(DummyEnv):
         self._target_state = {
             "position": np.array(self.rng.uniform(0, self.size, size=2)),
         }
-        #self._target_state = np.array(self.rng.uniform(0, self.size, size=2))
-
         self._agent_state = {
-            "position": np.array(self.rng.uniform(0, self.size, size=2)),
-            "heading": calculate_heading(self._agent_state["position"], self._target_state["position"]),
+            "position": np.array(self.rng.uniform(0, self.size, size=2))
         }
+        #self._target_state = np.array(self.rng.uniform(0, self.size, size=2))
+        self._agent_state["heading"] = calculate_heading(self._agent_state["position"], self._target_state["position"])
+        
         #initialize obstacles related information
         if not motional_obstacles:
             self._obstacles = {
@@ -349,13 +352,14 @@ class DiscreteApproach(DummyEnv):
             }
         else:
             raise NotImplementedError("Motional obstacles not implemented, but initializing.")
-
+        _, heading, target = self.get_position()
+        assert heading == target
         self.trajectory = []
         observation = self._get_obs()
         info = self._get_info()
         return observation, info
 
-    def step(self, action, alpha = 1.0, beta = 0.5, gamma = 4.0):
+    def step(self, action, alpha = 0.5, beta = 1.0, gamma = 4.0):
         '''
         Action Space:
         Stay, Slight Left, Slight Right, Hard Left, Hard Right.
@@ -365,6 +369,7 @@ class DiscreteApproach(DummyEnv):
         pos, heading = self._agent_state["position"], self._agent_state["heading"]
         angle_change = [0, self.slight_turn, -self.slight_turn,
                         self.hard_turn, -self.hard_turn]
+        #print(action)
         _new_state = {
             "position": calculate_position(pos, heading, self.speed),
             "heading": heading + angle_change[action]
@@ -631,6 +636,17 @@ class DiscreteApproach(DummyEnv):
 
         # Draw the sprite
         self.screen.blit(rotated_sprite, sprite_rect)
+    
+    def need_rl(self):
+        obs = self._get_obs()
+        ret = False
+        for i, x in enumerate(obs):
+            if i == obs.shape[0] - 1:
+                break
+            if x[0] < self.radius :
+                ret = True
+                break
+        return ret
 
     def close(self):
         if self.screen is not None:
