@@ -372,7 +372,7 @@ class DiscreteApproach(DummyEnv):
         
         return observation, info
 
-    def step(self, action, alpha = 1.0, beta = 0.8, gamma = 1.5):
+    def step(self, action, alpha = 1.0, beta = 0.8, gamma = 0.8):
         '''
         Action Space:
         Stay, Slight Left, Slight Right, Hard Left, Hard Right.
