@@ -94,11 +94,15 @@ class SARSAModel(nn.Module):
         self.obs_dim = num_obstacles
         self.act_dim = 5
         self.size = size
-        self.q_table = np.zeros((self.size, 36, 36, self.act_dim)) #Only decide based on the closest obstacle
+        self.q_table = np.zeros((self.size, 36, self.size, 36, 36, self.act_dim)) #Only decide based on the closest obstacle, and where the target is at
     
-    def act(self, obs, epsilon = 0.1):
-        i = np.argmin(obs[:, 0])
-        q_values = self.q_table[obs[i][0], (obs[i][1] // 10) % 36, (obs[i][2] // 10) % 36, :]
+    def act(self, obs, epsilon = 0.2, episode = None):
+        if episode:
+            epsilon = max(0.01, epsilon - 1e-4 * episode)
+        i = np.argmin(obs[:-1, 0])
+        print("avoiding obstacle", i)
+            
+        q_values = self.q_table[obs[-1][0], obs[-1][1], obs[i][0], obs[i][1], obs[i][2], :]
         greedy_action = np.argmax(q_values)
         if random.uniform(0, 1) < epsilon:
             rest_actions = [x for x in range(self.act_dim) if x != greedy_action]
@@ -107,12 +111,11 @@ class SARSAModel(nn.Module):
             action = greedy_action
         return action
 
-    def update(self, action, obs_old, obs_new, reward, gamma=0.8, alpha=0.2):
-        i = np.argmin(obs_old[:, 0]) #focus on the original closest obstacle
+    def update(self, action, obs_old, obs_new, reward, gamma=0.9, alpha=0.6):
+        i = np.argmin(obs_old[:-1, 0]) #focus on the original closest obstacle
         next_action = self.act(obs_new)
-        next_q = self.q_table[obs_old[i][0], (obs_old[i][1] // 10) % 36, (obs_old[i][2] // 10) % 36, next_action]
-        old_q = self.q_table[obs_old[i][0], (obs_old[i][1] // 10) % 36, (obs_old[i][2] // 10) % 36, action]
+        next_q = self.q_table[obs_new[-1][0], obs_new[-1][1], obs_new[i][0], obs_new[i][1], obs_new[i][2], next_action]
+        old_q = self.q_table[obs_old[-1][0], obs_old[-1][1], obs_old[i][0], obs_old[i][1], obs_old[i][2], action]
         increment = reward + gamma * next_q - old_q
-        self.q_table[obs_old[i][0], (obs_old[i][1] // 10) % 36, (obs_old[i][2] // 10) % 36, action] += alpha * increment
+        self.q_table[obs_old[-1][0], obs_old[-1][1], obs_old[i][0], obs_old[i][1], obs_old[i][2], action] += alpha * increment
         return 
-        

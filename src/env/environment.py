@@ -4,7 +4,7 @@ import gymnasium as gym
 from gymnasium.envs.registration import register
 import math
 import pygame
-
+from copy import deepcopy
 def equals(dict1, dict2, tolerance):
     assert dict1.keys() == dict2.keys()
     for k in dict1.keys():
@@ -175,10 +175,10 @@ def calculate_heading(agent, target):
     if angle_deg < 0:
         angle_deg += 360
 
-    return round(angle_deg / 10) * 10
+    return angle_deg // 10
     
 def calculate_position(agent, heading, v):
-    rad = math.radians(heading)
+    rad = math.radians(heading * 10)
     return np.array([agent[0] + v * math.cos(rad), 
                      agent[1] + v * math.sin(rad)])
     
@@ -188,12 +188,14 @@ def arrive(agent, target, tolerance):
 class DiscreteApproach(DummyEnv):
     def __init__(self, tolerance = None, max_steps = 300):
         self.size = 40
+        self.max_dis = math.ceil(40 * np.sqrt(2))
+        
         self.speed = 1
-        self.slight_turn = 10
-        self.hard_turn = 30
-        self.num_stat_obs = 3
+        self.slight_turn = 1
+        self.hard_turn = 3
+        self.num_stat_obs = 6
         self.num_mot_obs = 0
-        self.radius = 5 #the radius within which we consider an obstacle an intruder
+        self.radius = 8 #the radius within which we consider an obstacle an intruder
         self.rng = np.random.default_rng()
         self.max_speed = 300
         
@@ -267,7 +269,7 @@ class DiscreteApproach(DummyEnv):
         distances are in float, while angles are in 10-degrees.
         '''
         low = np.tile(np.array([0, 0, 0]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
-        high = np.tile(np.array([int(self.size), 35, 35]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
+        high = np.tile(np.array([int(self.max_dis), 35, 35]), (self.num_mot_obs + self.num_stat_obs + 1, 1))
         self.observation_space = gym.spaces.Box(
             low = low,
             high = high,
@@ -333,8 +335,7 @@ class DiscreteApproach(DummyEnv):
     
     def reset(self, seed: Optional[int] = None, motional_obstacles = False):
         super().reset(seed=seed)
-        self.episodic_step = 0
-        self.episodic_reward = 0
+        
         self._target_state = {
             "position": np.array(self.rng.uniform(0, self.size, size=2)),
         }
@@ -356,10 +357,14 @@ class DiscreteApproach(DummyEnv):
         assert heading == target
         self.trajectory = []
         observation = self._get_obs()
-        info = self._get_info()
+        assert observation[-1, 0] == int(np.linalg.norm(self._agent_state["position"] - self._target_state["position"]))
+        info = deepcopy(self._get_info())
+        self.episodic_step = 0
+        self.episodic_reward = 0
+        
         return observation, info
 
-    def step(self, action, alpha = 0.2, beta = 0.8, gamma = 4.0):
+    def step(self, action, alpha = 1.2, beta = 0.8, gamma = 4.0):
         '''
         Action Space:
         Stay, Slight Left, Slight Right, Hard Left, Hard Right.
@@ -372,7 +377,7 @@ class DiscreteApproach(DummyEnv):
         #print(action)
         _new_state = {
             "position": calculate_position(pos, heading, self.speed),
-            "heading": heading + angle_change[action]
+            "heading": (heading + angle_change[action]) % 36
         }
         self._agent_state = _new_state
         if self._obstacles["motional"] is not None:
@@ -392,21 +397,38 @@ class DiscreteApproach(DummyEnv):
             boundary_viol = 0
 
         obs = self._get_obs()
-        target_distance = obs[-1][0]
-        target_heading = obs[-1][1]
-        reward_target = alpha * (self.size - target_distance) + beta * (360 - abs(_new_state["heading"] - target_heading))
+        assert obs[-1, 0] == int(np.linalg.norm(self._agent_state["position"] - self._target_state["position"]))
+        
+        #obstacle_penalty
         penalty_obstacle = 0
+        
+        '''
         for i, x in enumerate(obs):
             if i == obs.shape[0] - 1:
                 break
             if x[0] < self.radius:
-                penalty_obstacle += self.radius * self.radius - x[0] * x[0]
+                #penalty_obstacle += self.radius * self.radius * self.radius - x[0] * x[0] * x[0]
+                penalty_obstacle += np.power(self.radius, 2) - np.power(x[0], 2)
+                heading_diff = abs(_new_state["heading"] - x[1])
+                penalty_obstacle += (18 - min(heading_diff, 36 - heading_diff))
+        '''
+        i = np.argmin(obs[:-1, 0])
+        if obs[i, 0] < self.radius:
+                penalty_obstacle += np.power(self.radius, 2) - np.power(obs[i, 0], 2)
+                heading_diff = abs(_new_state["heading"] - obs[i, 1])
+                penalty_obstacle += np.power((18 - min(heading_diff, 36 - heading_diff)), 1.5)
+                
         penalty_obstacle *= gamma 
         reward_terminate = 500 if win else(-500 if lose else 0)
-        #skip = penalty_obstacle <= 0
-        skip = False
+        skip = (penalty_obstacle <= 0)
+        
+        target_distance = obs[-1][0]
+        target_heading = obs[-1][1]
+        heading_diff = abs(_new_state["heading"] - target_heading)
+        reward_target = alpha * (self.max_dis - target_distance) + beta * (180 - 10 * min(heading_diff, 36 - heading_diff))
         
         reward = reward_target - penalty_obstacle + reward_terminate + boundary_viol
+        
         if not skip:
             self.episodic_step += 1
             self.episodic_reward += reward
@@ -510,7 +532,7 @@ class DiscreteApproach(DummyEnv):
         pygame.draw.circle(self.screen, self.colors['agent'], pos, 8)
 
         # Draw heading indicator
-        heading_rad = math.radians(heading)
+        heading_rad = math.radians(heading * 10)
         end_pos = (pos[0] + 15 * math.cos(heading_rad),
                    pos[1] - 15 * math.sin(heading_rad))
         pygame.draw.line(self.screen, self.colors['agent'], pos, end_pos, 2)
@@ -551,7 +573,7 @@ class DiscreteApproach(DummyEnv):
         # State information
         info_texts = [
             f"Position: ({pos_x:.1f}, {pos_y:.1f})",
-            f"Heading: {heading:.1f}°",
+            f"Heading: {heading * 10:.1f}°",
             #f"Step: {self.episodic_step}/{self.max_steps}",
             f"Reward: {ep_reward:.1f}"
         ]
@@ -632,7 +654,7 @@ class DiscreteApproach(DummyEnv):
         # We use math.degrees() to ensure consistent conversion
         # The negative is because pygame rotation is clockwise
         #rotation_degrees = math.degrees(heading_rad) - 90
-        rotated_sprite = pygame.transform.rotate(sprite, heading - 90)
+        rotated_sprite = pygame.transform.rotate(sprite, heading * 10 - 90)
 
         # Get the rect for positioning
         sprite_rect = rotated_sprite.get_rect(center=pos)
@@ -642,14 +664,22 @@ class DiscreteApproach(DummyEnv):
     
     def need_rl(self):
         obs = self._get_obs()
-        ret = False
-        for i, x in enumerate(obs):
-            if i == obs.shape[0] - 1:
-                break
+        assert obs[-1, 0] == int(np.linalg.norm(self._agent_state["position"] - self._target_state["position"]))
+        for i, x in enumerate(obs[:-1]):
             if x[0] < self.radius :
-                ret = True
-                break
-        return ret
+                return True
+        return False
+
+    def direct_step(self):
+        assert not self.need_rl()
+        possible_headings = [self._agent_state["heading"] + x
+                                for x in [0, self.slight_turn, -self.slight_turn,
+                                    self.hard_turn, -self.hard_turn]]
+        target_heading = calculate_heading(self._agent_state["position"], self._target_state["position"])
+        heading_diff = [abs(target_heading - x) for x in possible_headings]
+        action = np.argmin([min(y, 36 - y) for y in heading_diff])
+        obs, reward, done, _, info = self.step(action)
+        return obs, reward, done, _, info
 
     def close(self):
         if self.screen is not None:
