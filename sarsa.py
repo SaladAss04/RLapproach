@@ -5,7 +5,7 @@ from tqdm import tqdm
 from src.utils import *
 import numpy as np
 
-NUM_ITER=3000
+NUM_ITER=5000
 
 def train():
     env = gym.make('env/Approach-v2')

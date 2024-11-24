@@ -99,7 +99,7 @@ class SARSAModel(nn.Module):
     
     def act(self, obs, epsilon = 0.2, episode = None):
         if episode:
-            epsilon = max(0.1, epsilon - 1e-5 * episode)
+            epsilon = max(0.15, epsilon - 1e-5 * episode)
         i = np.argmin(obs[:-1, 0])
         #print("avoiding obstacle", i)
             
@@ -114,7 +114,7 @@ class SARSAModel(nn.Module):
 
     def update(self, action, obs_old, obs_new, reward, gamma=0.9, alpha=0.8, episode=None):
         if episode is not None:
-            alpha = max(alpha - 5e-5 * episode, 0.5)
+            alpha = max(alpha - 5e-5 * episode, 0.4)
         i = np.argmin(obs_old[:-1, 0]) #focus on the original closest obstacle
         next_action = self.act(obs_new)
         next_q = self.q_table[obs_new[-1][0], obs_new[-1][1], obs_new[i][0], obs_new[i][1], obs_new[i][2], next_action]

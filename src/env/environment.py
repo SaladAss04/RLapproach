@@ -211,7 +211,7 @@ class DiscreteApproach(DummyEnv):
         self.episodic_step = 0
         if tolerance == None:
             #tolerable in a circle with radius             
-            self.tolerance = 0.5
+            self.tolerance = 0.8
         else:
             self.tolerance = tolerance
         self._agent_state = None
@@ -375,7 +375,7 @@ class DiscreteApproach(DummyEnv):
         
         return observation, info
 
-    def step(self, action, alpha = 1.0, beta = 0.8, gamma = 0.8):
+    def step(self, action, alpha = 1.0, beta = 0.8, gamma = 0.75):
         '''
         Action Space:
         Stay, Slight Left, Slight Right, Hard Left, Hard Right.
