@@ -4,6 +4,7 @@ import gymnasium as gym
 from gymnasium.envs.registration import register
 import math
 import pygame
+import random
 from copy import deepcopy
 def equals(dict1, dict2, tolerance):
     assert dict1.keys() == dict2.keys()
@@ -183,7 +184,11 @@ def calculate_position(agent, heading, v):
                      agent[1] + v * math.sin(rad)])
     
 def arrive(agent, target, tolerance):
-    return np.linalg.norm(target - agent) < tolerance
+    if len(target) > 2:
+        _target = target[:2]
+    else:
+        _target = target
+    return np.linalg.norm(_target - agent) < tolerance
     
 class DiscreteApproach(DummyEnv):
     def __init__(self, tolerance = None, max_steps = 300):
@@ -194,8 +199,8 @@ class DiscreteApproach(DummyEnv):
         self.slight_turn = 1
         self.hard_turn = 3
         self.num_stat_obs = 6
-        self.num_mot_obs = 0
-        self.radius = 8 #the radius within which we consider an obstacle an intruder
+        self.num_mot_obs = 2
+        self.radius = 10 #the radius within which we consider an obstacle an intruder
         self.rng = np.random.default_rng()
         self.max_speed = 300
         
@@ -209,7 +214,11 @@ class DiscreteApproach(DummyEnv):
             self.tolerance = tolerance
         self._agent_state = None
         #self._target_state = None
-        self._obstacles = None
+        
+        self._obstacles = {
+                "static":[np.array(self.rng.uniform(0, self.size, size=2)) for _ in range(self.num_stat_obs)],
+                "motional": [np.array([random.randint(0, self.size), random.randint(0, self.size), random.randint(0, 35)], dtype=np.float32) for _ in range(self.num_mot_obs)]
+        }
         self.episodic_info = {
             "total_reward": self.episodic_reward,
             "total_steps": self.episodic_step
@@ -290,25 +299,27 @@ class DiscreteApproach(DummyEnv):
         t.b.d: slight turns are 10 degrees, while hard turns are 30 degrees.
         '''
         self.action_space = gym.spaces.Discrete(5)
+        '''
         self._obstacles = {
             "static":[np.array(self.rng.uniform(0, self.size, size=2)) for _ in range(self.num_stat_obs)],
-            "motional": None
+            "motional": [np.array(list(self.rng.uniform(0, self.size, size=2)).append(random.randint(0, 35))) for _ in range(self.num_stat_obs)]
         }
-        
+        '''
     def _get_obs(self):
         pos, heading = self._agent_state["position"], self._agent_state["heading"]
         target = self._target_state
         obs = np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype)
-
+        #print(self._obstacles)
         for i, x in enumerate(self._obstacles["static"]):
             obs[i][0] = int(np.linalg.norm(pos - x))
             obs[i][1] = int(calculate_heading(pos, x))
             obs[i][2] = -1
-            assert i < obs.shape[0] - 1
-
-        #for i, x in enumerate(self._obstacles["motional"]):
-        if self._obstacles["motional"] is not None:
-            raise NotImplementedError("Motional obstacles not implemented, but observing.")
+        for j, y in enumerate(self._obstacles["motional"]):
+            o_pos = y[:2]
+            o_heading = int(y[-1])
+            obs[self.num_stat_obs + j][0] = int(np.linalg.norm(pos - o_pos))
+            obs[self.num_stat_obs + j][1] = int(calculate_heading(pos, o_pos))
+            obs[self.num_stat_obs + j][2] = o_heading - heading
 
         obs[-1][0] = int(np.linalg.norm(pos - target["position"]))
         obs[-1][1] = int(calculate_heading(pos, target["position"]))
@@ -346,13 +357,10 @@ class DiscreteApproach(DummyEnv):
         self._agent_state["heading"] = calculate_heading(self._agent_state["position"], self._target_state["position"])
         
         #initialize obstacles related information
-        if not motional_obstacles:
-            self._obstacles = {
+        self._obstacles = {
                 "static":[np.array(self.rng.uniform(0, self.size, size=2)) for _ in range(self.num_stat_obs)],
-                "motional": None
-            }
-        else:
-            raise NotImplementedError("Motional obstacles not implemented, but initializing.")
+                "motional": [np.array([random.randint(0, self.size), random.randint(0, self.size), random.randint(0, 35)], dtype=np.float32) for _ in range(self.num_mot_obs)]
+        }
         _, __, heading, target = self.get_position_debug()
         assert heading == target
         self.trajectory = []
@@ -364,31 +372,40 @@ class DiscreteApproach(DummyEnv):
         
         return observation, info
 
-    def step(self, action, alpha = 1.2, beta = 0.8, gamma = 4.0):
+    def step(self, action, alpha = 1.0, beta = 0.8, gamma = 1.5):
         '''
         Action Space:
         Stay, Slight Left, Slight Right, Hard Left, Hard Right.
         
         t.b.d: slight turns are 10 degrees, while hard turns are 30 degrees.
         '''
+        #move agent
         pos, heading = self._agent_state["position"], self._agent_state["heading"]
         angle_change = [0, self.slight_turn, -self.slight_turn,
                         self.hard_turn, -self.hard_turn]
-        #print(action)
         _new_state = {
             "position": calculate_position(pos, heading, self.speed),
             "heading": (heading + angle_change[action]) % 36
         }
         self._agent_state = _new_state
-        if self._obstacles["motional"] is not None:
-            self._obstacles["static"].extend(self._obstacles["motional"])
+        
+        #move motional obstacles
+        for i, x in enumerate(self._obstacles["motional"]):
+            o_pos = x[:2]
+            o_heading = int(x[-1])
+            n_pos = calculate_position(o_pos, o_heading, self.speed)
+            n_pos = [x % 40 for x in n_pos]
+            self._obstacles["motional"][i][:2] = n_pos
+            assert self._obstacles["motional"][i][-1] == o_heading
+        
+        #calculating termination
+        obstacles = self._obstacles["static"] + self._obstacles["motional"]
         lose = any(arrive(_new_state["position"], x, self.tolerance)
-                for x in self._obstacles["static"])
+                for x in obstacles)
         win = arrive(_new_state["position"],
                            self._target_state["position"], self.tolerance)
         terminated = win or lose
         truncated = self.episodic_step > self.max_steps
-
         #check boundaries
         if self._check_boundaries():
             boundary_viol = -100.0
@@ -396,12 +413,12 @@ class DiscreteApproach(DummyEnv):
         else:
             boundary_viol = 0
 
+        #calculating reward
         obs = self._get_obs()
         assert obs[-1, 0] == int(np.linalg.norm(self._agent_state["position"] - self._target_state["position"]))
         
         #obstacle_penalty
         penalty_obstacle = 0
-        
         '''
         for i, x in enumerate(obs):
             if i == obs.shape[0] - 1:
@@ -417,7 +434,6 @@ class DiscreteApproach(DummyEnv):
                 penalty_obstacle += np.power(self.radius, 2) - np.power(obs[i, 0], 2)
                 heading_diff = abs(_new_state["heading"] - obs[i, 1])
                 penalty_obstacle += np.power((18 - min(heading_diff, 36 - heading_diff)), 1.5)
-                
         penalty_obstacle *= gamma 
         reward_terminate = 500 if win else(-500 if lose else 0)
         skip = (penalty_obstacle <= 0)
@@ -429,12 +445,14 @@ class DiscreteApproach(DummyEnv):
         
         reward = reward_target - penalty_obstacle + reward_terminate + boundary_viol
         
+        #recording episode reward
         if not skip:
             self.episodic_step += 1
             self.episodic_reward += reward
         if (terminated or truncated) and not skip:
             self.episodic_info["total_reward"] = self.episodic_reward
             self.episodic_info["total_steps"] = self.episodic_step
+
         return obs, reward, terminated, truncated, {}
 
     def _check_boundaries(self):
@@ -522,7 +540,21 @@ class DiscreteApproach(DummyEnv):
 
             # Draw obstacle as a small solid dot
             pygame.draw.circle(self.screen, self.colors['obstacle'], screen_pos, 8)
+            
+        for x in self._obstacles["motional"]:
+            obs_pos = x[:2]
+            obs_heading = x[-1]
+            screen_pos = self._world_to_screen(obs_pos)
 
+            # Draw influence zone as a semi-transparent circle
+            influence_radius = int(self.radius * (self.screen_width - 2*self.padding) / self.size)
+            pygame.draw.circle(influence_surface, self.colors['obstacle_zone'],
+                               screen_pos, influence_radius)
+
+            # Draw obstacle as a small solid dot
+            pygame.draw.circle(self.screen, self.colors['obstacle'], screen_pos, 8)
+
+            
         # Blit the influence surface onto the main screen
         self.screen.blit(influence_surface, (0, 0))
 
@@ -569,13 +601,16 @@ class DiscreteApproach(DummyEnv):
         heading = float(self._agent_state['heading'][0] if isinstance(self._agent_state['heading'], np.ndarray)
                         else self._agent_state['heading'])
         ep_reward = float(self.episodic_reward)
+        obs = self._get_obs()
+        target_id = np.argmin(obs[:-1, 0])
 
         # State information
         info_texts = [
             f"Position: ({pos_x:.1f}, {pos_y:.1f})",
             f"Heading: {heading * 10:.1f}°",
             #f"Step: {self.episodic_step}/{self.max_steps}",
-            f"Reward: {ep_reward:.1f}"
+            f"Reward: {ep_reward:.1f}",
+            f"Avoiding Target and Distance: {target_id:.1f}, {obs[target_id][0]:.1f}"
         ]
 
         # Render state information

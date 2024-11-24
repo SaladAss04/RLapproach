@@ -4,11 +4,12 @@ from src.agent.agent import SARSAModel
 from tqdm import tqdm
 from src.utils import *
 import numpy as np
-NUM_ITER=500
+
+NUM_ITER=3000
 
 def train():
     env = gym.make('env/Approach-v2')
-    agent = SARSAModel(6, env.max_dis)
+    agent = SARSAModel(8, env.max_dis)
     reward_history = []
     reward_mean = []
     for t in tqdm(range(NUM_ITER)):
@@ -17,6 +18,7 @@ def train():
         reward_history.append(info["total_reward"])
         reward_mean.append(np.mean(reward_history))
         while not done:
+            '''
             while not env.need_rl():
                 obs, reward, done, truncated, info = env.direct_step()
                 a, p, h, diff = env.get_position_debug()
@@ -25,6 +27,7 @@ def train():
                     obs, info = env.reset()
                     #print("straight to target, restarting")
                 #env.render()
+            '''
             action = agent.act(obs, episode=t)
             next_obs, reward, done, truncated, info = env.step(action)
             agent.update(action, obs, next_obs, reward)
@@ -49,13 +52,7 @@ def eval(model):
                 if done or truncated:
                     obs, info = env.reset()
                 env.render()
-            '''
-            if obs[-1][0] >= 40:
-                print(env.get_position_debug())
-            else:
-                print(obs[-1][0])
-            '''
-            action = model.act(obs, epsilon=0.08)
+            action = model.act(obs, epsilon=0.05)
             obs, reward, done, truncated, info = env.step(action)
             done = done or truncated
             env.render()

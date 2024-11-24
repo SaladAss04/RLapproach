@@ -94,13 +94,14 @@ class SARSAModel(nn.Module):
         self.obs_dim = num_obstacles
         self.act_dim = 5
         self.size = size
-        self.q_table = np.zeros((self.size, 36, self.size, 36, 36, self.act_dim)) #Only decide based on the closest obstacle, and where the target is at
+        #self.q_table = np.zeros((self.size, 36, self.size, 36, 36, self.act_dim)) #Only decide based on the closest obstacle, and where the target is at
+        self.q_table = np.random.uniform(low=-50, high=50, size=(self.size, 36, self.size, 36, 36, self.act_dim))
     
     def act(self, obs, epsilon = 0.2, episode = None):
         if episode:
-            epsilon = max(0.01, epsilon - 1e-4 * episode)
+            epsilon = max(0.1, epsilon - 1e-5 * episode)
         i = np.argmin(obs[:-1, 0])
-        print("avoiding obstacle", i)
+        #print("avoiding obstacle", i)
             
         q_values = self.q_table[obs[-1][0], obs[-1][1], obs[i][0], obs[i][1], obs[i][2], :]
         greedy_action = np.argmax(q_values)
@@ -111,7 +112,9 @@ class SARSAModel(nn.Module):
             action = greedy_action
         return action
 
-    def update(self, action, obs_old, obs_new, reward, gamma=0.9, alpha=0.6):
+    def update(self, action, obs_old, obs_new, reward, gamma=0.9, alpha=0.8, episode=None):
+        if episode is not None:
+            alpha = max(alpha - 5e-5 * episode, 0.5)
         i = np.argmin(obs_old[:-1, 0]) #focus on the original closest obstacle
         next_action = self.act(obs_new)
         next_q = self.q_table[obs_new[-1][0], obs_new[-1][1], obs_new[i][0], obs_new[i][1], obs_new[i][2], next_action]
