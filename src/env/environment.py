@@ -245,8 +245,8 @@ class DiscreteApproach(DummyEnv):
             'agent': (102, 255, 178),         # Bright mint green for agent
             'target': (255, 89, 94),          # Coral red for target
             'obstacle': (184, 115, 51),       # Warm orange for obstacle dots
-            #'obstacle_zone': (184, 115, 51, 50), # Warm brown with more opacity for zones
-            'obstacle_zone':  (255, 140, 0, 45), # Warm brown with more opacity for zones
+            'obstacle_zone': (184, 115, 51, 50), # Warm brown with more opacity for zones
+            #'obstacle_zone':  (255, 140, 0, 45), # Warm brown with more opacity for zones
             'text': (220, 230, 240),          # Off-white for text
             'warning': (255, 89, 94),         # Coral red for warnings
             'trajectory': (103, 140, 255, 160) # Brighter blue for trajectory
@@ -559,7 +559,7 @@ class DiscreteApproach(DummyEnv):
             # Draw influence zone as a semi-transparent circle
             influence_radius = int(self.radius * (self.screen_width - 2*self.padding) / self.size)
             #influence_radius = 12
-            plane_influence = (150, 120, 31, 50)
+            plane_influence = (200, 140, 50, 50)
             pygame.draw.circle(influence_surface, plane_influence,
                                screen_pos, influence_radius)
 
