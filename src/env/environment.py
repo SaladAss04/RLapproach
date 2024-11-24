@@ -1,11 +1,13 @@
 from typing import Optional
-import numpy as np
+import numpy as np 
 import gymnasium as gym
-from gymnasium.envs.registration import register
 import math
 import pygame
+import time
+
 import random
 from copy import deepcopy
+
 def equals(dict1, dict2, tolerance):
     assert dict1.keys() == dict2.keys()
     for k in dict1.keys():
@@ -200,7 +202,7 @@ class DiscreteApproach(DummyEnv):
         self.hard_turn = 3
         self.num_stat_obs = 6
         self.num_mot_obs = 2
-        self.radius = 10 #the radius within which we consider an obstacle an intruder
+        self.radius = 5 #the radius within which we consider an obstacle an intruder
         self.rng = np.random.default_rng()
         self.max_speed = 300
         
@@ -208,15 +210,15 @@ class DiscreteApproach(DummyEnv):
         self.episodic_reward = 0
         self.episodic_step = 0
         if tolerance == None:
-            #tolerable in a circle with radius 2
-            self.tolerance = 2
+            #tolerable in a circle with radius             
+            self.tolerance = 0.5
         else:
             self.tolerance = tolerance
         self._agent_state = None
         #self._target_state = None
         
         self._obstacles = {
-                "static":[np.array(self.rng.uniform(0, self.size, size=2)) for _ in range(self.num_stat_obs)],
+                "static": [np.array(self.rng.uniform(0, self.size, size=2)) for _ in range(int(self.num_stat_obs))],
                 "motional": [np.array([random.randint(0, self.size), random.randint(0, self.size), random.randint(0, 35)], dtype=np.float32) for _ in range(self.num_mot_obs)]
         }
         self.episodic_info = {
@@ -243,7 +245,8 @@ class DiscreteApproach(DummyEnv):
             'agent': (102, 255, 178),         # Bright mint green for agent
             'target': (255, 89, 94),          # Coral red for target
             'obstacle': (184, 115, 51),       # Warm orange for obstacle dots
-            'obstacle_zone': (184, 115, 51, 50), # Warm brown with more opacity for zones
+            #'obstacle_zone': (184, 115, 51, 50), # Warm brown with more opacity for zones
+            'obstacle_zone':  (255, 140, 0, 45), # Warm brown with more opacity for zones
             'text': (220, 230, 240),          # Off-white for text
             'warning': (255, 89, 94),         # Coral red for warnings
             'trajectory': (103, 140, 255, 160) # Brighter blue for trajectory
@@ -494,6 +497,12 @@ class DiscreteApproach(DummyEnv):
 
         pygame.display.flip()
 
+        #current_time = datetime.now()
+        #filename = current_time.strftime("%Y-%m-%d_%H-%M-%S-%f") + ".pdf"
+        #print("Saving file as:", filename)
+        #pygame.image.save(self.screen, f"{filename}.jpeg")
+        #time.sleep(0.1)
+
     def _world_to_screen(self, pos):
         """Convert world coordinates to screen coordinates"""
         x = self.padding + (pos[0] / self.size) * (self.screen_width - 2 * self.padding)
@@ -539,7 +548,8 @@ class DiscreteApproach(DummyEnv):
                                screen_pos, influence_radius)
 
             # Draw obstacle as a small solid dot
-            pygame.draw.circle(self.screen, self.colors['obstacle'], screen_pos, 8)
+            crash_zone = int(self.tolerance * (self.screen_width - 2*self.padding) / self.size)
+            pygame.draw.circle(self.screen, self.colors['obstacle'], screen_pos, crash_zone)
             
         for x in self._obstacles["motional"]:
             obs_pos = x[:2]
@@ -548,11 +558,25 @@ class DiscreteApproach(DummyEnv):
 
             # Draw influence zone as a semi-transparent circle
             influence_radius = int(self.radius * (self.screen_width - 2*self.padding) / self.size)
-            pygame.draw.circle(influence_surface, self.colors['obstacle_zone'],
+            #influence_radius = 12
+            plane_influence = (150, 120, 31, 50)
+            pygame.draw.circle(influence_surface, plane_influence,
                                screen_pos, influence_radius)
 
+            if self.sprite_original is None:
+                self._load_sprite()
+            sprite = self.sprite_original.copy()
+            colored_sprite = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
+            colored_sprite.fill((255,255,255))
+            sprite.blit(colored_sprite, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+            rotated_sprite = pygame.transform.rotate(sprite, obs_heading * 10 - 90)
+            sprite_rect = rotated_sprite.get_rect(center=screen_pos)
+                
             # Draw obstacle as a small solid dot
-            pygame.draw.circle(self.screen, self.colors['obstacle'], screen_pos, 8)
+            #crash_zone = int(self.tolerance * (self.screen_width - 2*self.padding) / self.size)
+            #pygame.draw.circle(self.screen, self.colors['obstacle'], screen_pos, crash_zone)
+            self.screen.blit(rotated_sprite, sprite_rect)
 
             
         # Blit the influence surface onto the main screen
@@ -583,12 +607,12 @@ class DiscreteApproach(DummyEnv):
     def _draw_info_panels(self):
         """Draw information panels with state and navigation info"""
         # Create surfaces with alpha channel
-        state_panel = pygame.Surface((200, 120), pygame.SRCALPHA)
-        nav_panel = pygame.Surface((200, 100), pygame.SRCALPHA)
+        state_panel = pygame.Surface((500, 140), pygame.SRCALPHA)
+        nav_panel = pygame.Surface((200, 90), pygame.SRCALPHA)
 
         # Fill with semi-transparent dark background
         panel_bg_color = (26, 36, 46, 200)
-        pygame.draw.rect(state_panel, panel_bg_color, (0, 0, 250, 150))
+        pygame.draw.rect(state_panel, panel_bg_color, (0, 0, 300, 140))
         pygame.draw.rect(nav_panel, panel_bg_color, (0, 0, 250, 150))
 
         # State Panel
